@@ -3,7 +3,6 @@
 import os
 import re
 
-import torch
 from torch.nn.utils.rnn import pad_sequence
 
 from internlm.core.context import global_context as gpc
@@ -53,6 +52,8 @@ def unpack_data(input_ids, cu_seqlens, is_type_ids: bool = False, padding_v: int
         outputs = outputs.squeeze(0)
 
     """
+    import torch
+
     bsz = input_ids.shape[0]
     num_seq = gpc.config.data["micro_bsz"]
     seq_len_ = gpc.config.data.seq_len
