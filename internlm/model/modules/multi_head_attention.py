@@ -19,6 +19,7 @@ from internlm.model.modules.embedding import (
     RotaryEmbedding,
 )
 from internlm.model.ops.linear import get_linear_cls
+from internlm.utils.common import get_current_device
 
 internlm_accelerator = get_accelerator()
 
@@ -162,7 +163,7 @@ class AscendFlashSelfAttention(torch.nn.Module):
             raise ValueError("Invalid shape-order: {}, shape-order must be SBH or BSH or BSND".format(self.shape_order))
 
         if attention_mask is None:
-            attention_mask = torch.triu(torch.ones(S, S), 1).bool().npu()
+            attention_mask = torch.triu(torch.ones(S, S, device=get_current_device()), 1).bool()
 
         output = torch_npu.npu_fusion_attention(
             query=q,

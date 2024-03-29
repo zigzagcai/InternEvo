@@ -100,7 +100,8 @@ def do_cmp_attn(
         a = npu_attn(q.squeeze(dim=2), torch.concat([k, v], dim=2))  # pylint: disable=E1102
 
     b = npu_flash_attn(q=q, k=k, v=v)  # pylint: disable=E1102
-    assert torch.isfinite(a).all().item() and torch.isfinite(b).any().item()
+    assert torch.isfinite(a).all().item() and torch.isfinite(b).all().item()
+
     if dtype == torch.bfloat16:
         # torch_npu's equal not support bfloat16 by now.
         assert torch.allclose(a.to(torch.float32), b.to(torch.float32), atol=5e-2, rtol=1e-4), f"{name} not pass"
