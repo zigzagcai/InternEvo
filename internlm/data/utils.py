@@ -4,6 +4,7 @@ import os
 import re
 
 import torch
+from torch.nn.utils.rnn import pad_sequence
 
 from internlm.core.context import global_context as gpc
 
@@ -35,7 +36,24 @@ def unpack_data(input_ids, cu_seqlens, is_type_ids: bool = False, padding_v: int
             else the shape is (micro_num, micro_bsz, max_length)
     """
     bsz = input_ids.shape[0]
+    num_seq = gpc.config.data["micro_bsz"]
 
+    outputs = []
+    for i in range(bsz):
+        output = []
+        cu_seqlens_slice = cu_seqlens[i]
+        for j in range(num_seq):
+            output.append(input_ids[i, cu_seqlens_slice[j] : cu_seqlens_slice[j + 1]])
+        outputs.append(pad_sequence(output, batch_first=True, padding_value=padding_v))
+
+    outputs = pad_sequence(outputs, batch_first=True, padding_value=padding_v)
+
+    # if the input_ids is not type_ids, we need squeeze the first dimension if it is 1.
+    if bsz == 1 and not is_type_ids:
+        outputs = outputs.squeeze(0)
+
+    """
+    bsz = input_ids.shape[0]
     num_seq = gpc.config.data["micro_bsz"]
     seq_len_ = gpc.config.data.seq_len
     dtype_ = input_ids.dtype
@@ -49,9 +67,6 @@ def unpack_data(input_ids, cu_seqlens, is_type_ids: bool = False, padding_v: int
             length = cu_seqlens_slice[j + 1] - cu_seqlens_slice[j]
             output[j, 0:length] = input_ids[i, cu_seqlens_slice[j] : cu_seqlens_slice[j + 1]]
         outputs[i] = output
-
-    # if the input_ids is not type_ids, we need squeeze the first dimension if it is 1.
-    if bsz == 1 and not is_type_ids:
-        outputs = outputs.squeeze(0)
+    """
 
     return outputs
