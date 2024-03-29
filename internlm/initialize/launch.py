@@ -170,7 +170,7 @@ def args_sanity_check():
         data._add_item("use_packed_dataset", True)
 
     if "fixed_random_dataset_seqlen" not in data:
-        data._add_item("fixed_random_dataset_seqlen", False)
+        data._add_item("fixed_random_dataset_seqlen", True)
 
     if gpc.is_rank_for_log():
         logger.info("+" * 15 + " Data Info " + "+" * 15)  # pylint: disable=W1201
