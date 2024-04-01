@@ -44,6 +44,14 @@ def get_gqa_attn_cls(use_flash_attn, tp_mode, causal, softmax_scale, dropout, se
 
             inner_attn_cls, inner_cross_attn_cls = AscendFlashSelfAttention, AscendFlashSelfAttention
             inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
+        elif device_backend == AcceleratorType.DIPU:
+            from deeplink_ext.internlm_ops.mha import (
+                DeepLinkCrossAttention,
+                DeepLinkSelfAttention,
+            )
+
+            inner_attn_cls, inner_cross_attn_cls = DeepLinkSelfAttention, DeepLinkCrossAttention
+            inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
         else:
             raise NotImplementedError(f"Unsupport device type: {device_backend} for flash attention")
     else:
@@ -554,6 +562,13 @@ class MHA(nn.Module):
                 )
             elif internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
                 FlashCrossAttention, FlashSelfAttention = AscendFlashSelfAttention, AscendFlashSelfAttention
+            elif internlm_accelerator.get_accelerator_backend() == AcceleratorType.DIPU:
+                from deeplink_ext.internlm_ops.mha import (
+                    DeepLinkCrossAttention,
+                    DeepLinkSelfAttention,
+                )
+
+                FlashCrossAttention, FlashSelfAttention = DeepLinkCrossAttention, DeepLinkSelfAttention
 
             inner_attn_cls = FlashSelfAttention
             inner_cross_attn_cls = FlashCrossAttention
@@ -822,7 +837,7 @@ class MHA(nn.Module):
         kwargs.pop("indexes")
 
         # for packed data, batch dimension with a size of 1 should be directly squeezed off.
-        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
             qkv = qkv.squeeze(0)
         if inference_params is None:
             if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
@@ -838,7 +853,7 @@ class MHA(nn.Module):
 
         context = rearrange(context, "b h d -> b (h d)")  # recover the shape
         # restore bsz dimension
-        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
             context = context.unsqueeze(0)
 
         out = self.out_proj(context)
