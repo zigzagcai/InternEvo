@@ -518,6 +518,8 @@ class PackedFlashLlamaLayer1D(nn.Module):
         init_type: str = "normal",
         rope_base: int = 10000,
         tp_mode: str = "mtp",
+        mlp_layer_fusion: bool = False,
+        multiple_of: int = 256,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -582,6 +584,9 @@ class PackedFlashLlamaLayer1D(nn.Module):
                 bias=False,
                 device=device,
                 dtype=dtype,
+                mlp_layer_fusion=mlp_layer_fusion,
+                sequence_parallel=gpc.config.parallel.sequence_parallel,
+                multiple_of=multiple_of,
             )
         else:
             from flash_attn.modules.mlp import ParallelFusedMLP
@@ -633,6 +638,7 @@ class PackedFlashLlamaLayer1D(nn.Module):
                     if self.use_scaled_init and "w2" in name:
                         self.scaled_init_func(sigma=self.ffn_other_init_std, num_layers=self.layer_idx + 1)(param.data)
                     else:
+                        # candidate: w1, w3, fused_w1_w3
                         self.init_func(
                             std=self.ffn_uplayer_init_std if "w1" in name or "w3" in name else self.ffn_other_init_std
                         )(param.data)
@@ -813,6 +819,8 @@ class PackedFlashLlama1D(nn.Module):
         out_head_init_std: float = 0.02,
         init_type: str = "normal",
         rope_base: int = 10000,
+        mlp_layer_fusion: bool = False,
+        multiple_of: int = 256,
     ):
         super().__init__()
 
@@ -886,6 +894,8 @@ class PackedFlashLlama1D(nn.Module):
                     init_type=init_type,
                     rope_base=rope_base,
                     tp_mode=self.tp_mode,
+                    mlp_layer_fusion=mlp_layer_fusion,
+                    multiple_of=multiple_of,
                 )
                 for lid in range(num_layers)
             ]
@@ -1042,6 +1052,8 @@ def build_model_with_cfg(
     out_head_init_std: float = 0.02,
     init_type: str = "normal",
     rope_base: int = 10000,
+    mlp_layer_fusion: bool = False,
+    multiple_of: int = 256,
 ):
     """
     Builde model with config
@@ -1117,6 +1129,8 @@ def build_model_with_cfg(
         out_head_init_std=out_head_init_std,
         init_type=init_type,
         rope_base=rope_base,
+        mlp_layer_fusion=mlp_layer_fusion,
+        multiple_of=multiple_of,
     )
 
     return _build_generic_model_1d(num_layers=num_layers, num_chunks=num_chunks, **cfg)

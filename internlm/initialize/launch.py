@@ -360,6 +360,9 @@ def args_sanity_check():
             check_megablock_installed()
             check_stk_installed()
 
+    if "mlp_layer_fusion" not in model:
+        model._add_item("mlp_layer_fusion", False)
+
     # process the parallel config
     if "sequence_parallel" not in gpc.config.parallel:
         gpc.config.parallel._add_item("sequence_parallel", False)
