@@ -19,6 +19,7 @@ from internlm.model.modules.embedding import (
     RotaryEmbedding,
 )
 from internlm.model.ops.linear import get_linear_cls
+from internlm.model.utils import pack_output_after_attn, unpack_qkv_before_attn
 from internlm.utils.common import get_current_device
 
 internlm_accelerator = get_accelerator()
@@ -62,6 +63,7 @@ def get_gqa_attn_cls(use_flash_attn, tp_mode, causal, softmax_scale, dropout, se
 
     if tp_mode == "isp":
         inner_attn = DistributedAttention(inner_attn, sequence_process_group=sequence_process_group)
+        inner_cross_attn = DistributedAttention(inner_cross_attn, sequence_process_group=sequence_process_group)
 
     return inner_attn, inner_cross_attn
 
@@ -834,11 +836,18 @@ class MHA(nn.Module):
             qkv, "b t (three h d) -> b t three h d", three=3, d=self.head_dim
         )  # bsz x total x 3 x n_head x d
         qkv = self.rotary_emb(qkv, **kwargs)
+
         kwargs.pop("indexes")
 
         # for packed data, batch dimension with a size of 1 should be directly squeezed off.
-        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
             qkv = qkv.squeeze(0)
+        # since torch_npu only supports fa with no packed data currently, qkv should be unpacked
+        elif internlm_accelerator.get_accelerator_backend() in [AcceleratorType.NPU, AcceleratorType.DIPU]:
+            qkv = unpack_qkv_before_attn(qkv, kwargs["cu_seqlens"])
+            kwargs.pop("cu_seqlens")
+            kwargs.pop("max_seqlen")
+
         if inference_params is None:
             if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
                 with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
@@ -851,10 +860,12 @@ class MHA(nn.Module):
         else:
             raise RuntimeError("Not support this right now")
 
-        context = rearrange(context, "b h d -> b (h d)")  # recover the shape
-        # restore bsz dimension
-        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
-            context = context.unsqueeze(0)
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+            context = rearrange(context, "s h d -> s (h d)")  # recover the shape
+            context = context.unsqueeze(0)  # restore bsz dimension
+        elif internlm_accelerator.get_accelerator_backend() in [AcceleratorType.NPU, AcceleratorType.DIPU]:
+            context = rearrange(context, "b s h d -> b s (h d)")  # recover the shape
+            context = pack_output_after_attn(context, kwargs["cu_seqlens"])
 
         out = self.out_proj(context)
 
