@@ -22,6 +22,7 @@ from internlm.model.modules.multi_head_attention import (
     _update_kv_cache,
     get_gqa_attn_cls,
 )
+from internlm.model.ops.fusion_ops_import_helper import try_import_RMSNorm
 from internlm.model.ops.linear import (
     RewardModelLinear,
     ScaleColumnParallelLinear,
@@ -31,7 +32,6 @@ from internlm.model.utils import (
     gather_forward_split_backward,
     pack_output_after_attn,
     split_forward_gather_backward,
-    try_import_RMSNorm,
     unpack_qkv_before_attn,
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
@@ -281,7 +281,6 @@ class MHA(nn.Module):
             kv = torch.where(torch.isnan(kv), 0, kv)
 
             if hasattr(inference_params, "attention_mask") and inference_params.attention_mask is not None:
-                assert gpc.config.use_cuda_flash_attn is True
                 from flash_attn.flash_attn_interface import FlashAttnVarlenKVPackedFunc
 
                 if inference_params.sequence_len_offset == 0:  # First entrance, attnmask (bs*seqlen*seqlen)
@@ -576,44 +575,19 @@ class PackedFlashLlamaLayer1D(nn.Module):
         else:
             self.attention_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
             self.ffn_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-        if self.fused_dropout_add_ln and gpc.config.use_cuda_flash_attn:
-            from flash_attn.ops.layer_norm import dropout_add_layer_norm
 
-            assert dropout_add_layer_norm is not None, "dropout_add_ln is not installed"
-            assert isinstance(self.attention_norm, nn.LayerNorm) and isinstance(self.dropout1, nn.Dropout)
-
-        sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
-        if use_swiglu or not gpc.config.use_cuda_flash_attn:
-            mlp_cls = get_mlp_cls(self.tp_mode)
-            self.feed_forward = mlp_cls(
-                hidden_size,
-                int(hidden_size * mlp_ratio),
-                out_features=hidden_size,
-                process_group=gpc.get_group(parallel_mode),
-                bias=False,
-                device=device,
-                dtype=dtype,
-                mlp_layer_fusion=mlp_layer_fusion,
-                sequence_parallel=gpc.config.parallel.sequence_parallel,
-                multiple_of=multiple_of,
-            )
-        else:
-            from flash_attn.modules.mlp import ParallelFusedMLP
-
-            self.feed_forward = ParallelFusedMLP(
-                hidden_size,
-                int(hidden_size * mlp_ratio),
-                out_features=hidden_size,
-                activation="gelu_approx",
-                process_group=gpc.get_group(parallel_mode),
-                bias1=False,
-                bias2=False,
-                sequence_parallel=sequence_parallel,
-                checkpoint_lvl=0,
-                heuristic="auto",
-                device=device,
-                dtype=dtype,
-            )
+        self.feed_forward = get_mlp_cls(self.tp_mode)(
+            hidden_size,
+            int(hidden_size * mlp_ratio),
+            out_features=hidden_size,
+            process_group=gpc.get_group(parallel_mode),
+            bias=False,
+            device=device,
+            dtype=dtype,
+            mlp_layer_fusion=mlp_layer_fusion,
+            sequence_parallel=gpc.config.parallel.get("sequence_parallel", False),
+            multiple_of=multiple_of,
+        )
 
         self.dropout2 = nn.Dropout(drop_rate)
         self.use_swiglu = use_swiglu
@@ -839,7 +813,6 @@ class PackedFlashLlama1D(nn.Module):
         if not checkpoint:
             checkpoint_fraction = 0
         checkpoint_layer_num = num_layers * checkpoint_fraction
-        sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
         self.tp_mode = "mtp"
         if isinstance(gpc.config.parallel["tensor"], dict):
             self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
@@ -850,21 +823,9 @@ class PackedFlashLlama1D(nn.Module):
             head_cls = ScaleColumnParallelLinear
 
         if first:
-            if embed_split_hidden or not gpc.config.use_cuda_flash_attn:
-                self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
-            else:
-                from flash_attn.modules.embedding import ParallelGPT2Embeddings
-
-                self.tok_embeddings = ParallelGPT2Embeddings(
-                    embed_dim=hidden_size,
-                    vocab_size=vocab_size,
-                    max_position_embeddings=-1,
-                    process_group=gpc.get_group(ParallelMode.TENSOR),
-                    padding_idx=None,
-                    sequence_parallel=sequence_parallel,
-                    device=device,
-                    dtype=dtype,
-                )
+            self.tok_embeddings = Embedding1D(
+                num_embeddings=vocab_size, embedding_dim=hidden_size, embed_split_hidden=embed_split_hidden
+            )
             for _, param in self.tok_embeddings.named_parameters():
                 if init_type == "normal":
                     normal_(std=embedding_init_std)(param)

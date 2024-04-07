@@ -1,20 +1,19 @@
 from typing import Callable, List, Optional
 
 import torch
-from torch import nn
 
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.model.ops.fusion_ops_import_helper import (
+    internlm_init_CrossEntropyLoss,
+    try_import_scatter_sum,
+)
 from internlm.utils.common import SchedulerHook, get_current_device
 from internlm.utils.megatron_timers import megatron_timer as timer
 
-try:
-    from torch_scatter import scatter as cuda_scatter
-except (ModuleNotFoundError, ImportError):
-    pass
-
 internlm_accelerator = get_accelerator()
+scatter_sum = try_import_scatter_sum()
 
 
 def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
@@ -89,11 +88,7 @@ class AccPerplex:
             self.ds_tokens = torch.zeros(self.total_type_count, dtype=torch.long, device=device)
 
         self.loss_with_type_id = LossWithTypeId(device, dp_pg, dataset_types)
-
-        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
-            self.scatter_sum = cuda_scatter
-        else:
-            self.scatter_sum = vanilla_scatter
+        self.scatter_sum = scatter_sum if scatter_sum else vanilla_scatter
 
     def set_current_type_ids(self, type_ids: torch.Tensor):
         self.batch_shift = 0
@@ -262,21 +257,13 @@ class LossWithTypeId:
             self.ds_loss = torch.zeros(self.total_type_count, dtype=torch.float, device=device)
             self.ds_token_num = torch.zeros(self.total_type_count, dtype=torch.float, device=device)
 
-        if gpc.config.use_cuda_flash_attn and internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
-            from flash_attn.losses.cross_entropy import (
-                CrossEntropyLoss as FlashCrossEntropyLoss,
-            )
-
-            self.loss_fn = FlashCrossEntropyLoss(
-                reduction="none", inplace_backward=True, process_group=gpc.get_group(ParallelMode.TENSOR)
-            )
-        else:
-            self.loss_fn = nn.CrossEntropyLoss(reduction="none")
-
-        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
-            self.scatter_sum = cuda_scatter
-        else:
-            self.scatter_sum = vanilla_scatter
+        self.loss_fn = internlm_init_CrossEntropyLoss(
+            parallel_output=gpc.config.model.parallel_output,
+            reduction="none",
+            inplace_backward=True,
+            process_group=gpc.get_group(ParallelMode.TENSOR),
+        )
+        self.scatter_sum = scatter_sum if scatter_sum else vanilla_scatter
 
     def update(self, logits, labels, type_ids=None):
         with torch.no_grad():

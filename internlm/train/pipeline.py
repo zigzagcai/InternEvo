@@ -44,6 +44,11 @@ from internlm.model.moe.megablock.mlp import (
     MegaBlockGroupedFeedForward,
 )
 from internlm.model.moe.moe import MoE
+from internlm.model.ops.fusion_ops_import_helper import (
+    try_import_FusedAdamW,
+    try_import_ParallelGPT2Embeddings,
+    try_import_RMSNorm,
+)
 from internlm.model.ops.linear import (
     BaseScaleColumnParallelLinear,
     ColumnParallelLinearTorch,
@@ -52,7 +57,7 @@ from internlm.model.ops.linear import (
     RowParallelLinearTorch,
     ScaleColumnParallelLinear,
 )
-from internlm.model.utils import is_moe_param, try_import_RMSNorm
+from internlm.model.utils import is_moe_param
 from internlm.monitor import set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
@@ -107,12 +112,12 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
         # embedding and head
-        if gpc.config.use_cuda_flash_attn:
-            from flash_attn.modules.embedding import ParallelGPT2Embeddings
+        embedding_head_cls = (Embedding1D, BaseScaleColumnParallelLinear)
+        ParallelGPT2Embeddings = try_import_ParallelGPT2Embeddings(gpc.config.model.embed_split_hidden)
+        if ParallelGPT2Embeddings:
+            embedding_head_cls = (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)
 
-        if isinstance(module, (Embedding1D, BaseScaleColumnParallelLinear)) or (
-            gpc.config.use_cuda_flash_attn and isinstance(module, ParallelGPT2Embeddings)
-        ):
+        if isinstance(module, embedding_head_cls):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.TENSOR) and is_using_isp():
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
@@ -217,7 +222,6 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
 def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
     if gpc.config.parallel.zero1.fsdp and gpc.config.model.use_flash_attn:
         from flash_attn.modules.embedding import ParallelGPT2Embeddings
-        from flash_attn.modules.mlp import ParallelFusedMLP
 
         # set wrap_policy for fsdp wrap
         transformer_wrap_policy = functools.partial(
@@ -228,7 +232,6 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                 MHA,
                 RMSNorm,
                 FeedForward,
-                ParallelFusedMLP,
                 RewardModelLinear,
                 ScaleColumnParallelLinear,
             },
@@ -296,16 +299,9 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     grad_scal_cfg = gpc.config.grad_scaler
 
     params = create_param_groups(model, adam_cfg.weight_decay)
-    adam_extra_kwargs = {}
-    # set fused=True to avoid nan grad norm when model size is larger and use_fp32_norm=True
 
     # TODO(caikun): add DIPU backend adamw
-    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
-        internlm_adamw = torch_npu.optim.NpuFusedAdamW
-    else:
-        internlm_adamw = torch.optim.AdamW
-        if torch.__version__ >= "2.1.0" and internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
-            adam_extra_kwargs["fused"] = True
+    adam_extra_kwargs, internlm_adamw = try_import_FusedAdamW()
 
     naive_optimizer = internlm_adamw(
         params=params,

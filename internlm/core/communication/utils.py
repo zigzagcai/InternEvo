@@ -12,6 +12,9 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.modules.embedding import Embedding1D
+from internlm.model.ops.fusion_ops_import_helper import (
+    try_import_ParallelGPT2Embeddings,
+)
 from internlm.model.ops.linear import BaseScaleColumnParallelLinear
 from internlm.utils.common import get_current_device
 
@@ -218,10 +221,11 @@ class ParamAsyncBcastHandler:
             # so everything is fine.
 
             embedding_head_cls = (Embedding1D, BaseScaleColumnParallelLinear)
-            if gpc.config.use_cuda_flash_attn:
-                from flash_attn.modules.embedding import ParallelGPT2Embeddings
-
+            ParallelGPT2Embeddings = try_import_ParallelGPT2Embeddings(gpc.config.model.embed_split_hidden)
+            if ParallelGPT2Embeddings:
                 embedding_head_cls = (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)
+            else:
+                embedding_head_cls = (Embedding1D, BaseScaleColumnParallelLinear)
 
             if isp_communicator is None or isinstance(block, embedding_head_cls):
                 block.register_forward_pre_hook(_pre_forward_hook)

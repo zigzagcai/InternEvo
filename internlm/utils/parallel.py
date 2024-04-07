@@ -12,7 +12,7 @@ from internlm.core.context import (
     ParallelMode,
 )
 from internlm.core.context import global_context as gpc
-from internlm.model.utils import try_import_RMSNorm
+from internlm.model.ops.fusion_ops_import_helper import try_import_RMSNorm
 
 RMSNorm = try_import_RMSNorm()
 

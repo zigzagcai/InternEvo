@@ -15,11 +15,11 @@ from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.mlp import get_mlp_cls
 from internlm.model.modules.multi_head_attention import MHA
 from internlm.model.moe import MoE
+from internlm.model.ops.fusion_ops_import_helper import try_import_RMSNorm
 from internlm.model.ops.linear import RewardModelLinear, ScaleColumnParallelLinear
 from internlm.model.utils import (
     gather_forward_split_backward,
     split_forward_gather_backward,
-    try_import_RMSNorm,
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
@@ -122,7 +122,7 @@ class PackedFlashBaseLayer1D(nn.Module):
         self.num_experts = num_experts
         ep_size = gpc.get_world_size(ParallelMode.EXPERT)
         if num_experts <= 1:  # dense, not MoE
-            if use_swiglu or not gpc.config.use_cuda_flash_attn:
+            if use_swiglu:
                 mlp_cls = get_mlp_cls(self.tp_mode)
                 self.mlp = mlp_cls(
                     hidden_size,
@@ -135,23 +135,6 @@ class PackedFlashBaseLayer1D(nn.Module):
                     mlp_layer_fusion=mlp_layer_fusion,
                     sequence_parallel=gpc.config.parallel.sequence_parallel,
                     multiple_of=multiple_of,
-                )
-            else:
-                from flash_attn.modules.mlp import ParallelFusedMLP
-
-                self.mlp = ParallelFusedMLP(
-                    hidden_size,
-                    int(hidden_size * mlp_ratio),
-                    out_features=hidden_size,
-                    activation="gelu_approx",
-                    process_group=gpc.get_group(parallel_mode),
-                    bias1=False,
-                    bias2=False,
-                    sequence_parallel=gpc.config.parallel.sequence_parallel,
-                    checkpoint_lvl=0,
-                    heuristic="auto",
-                    device=device,
-                    dtype=dtype,
                 )
         else:
             # replace mlp by MoE module. The expert in MoE is a FeedForward module.
@@ -345,21 +328,9 @@ class PackedFlashInternLm1D(nn.Module):
             head_cls = ScaleColumnParallelLinear
 
         if first:
-            if embed_split_hidden or not gpc.config.use_cuda_flash_attn:
-                self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
-            else:
-                from flash_attn.modules.embedding import ParallelGPT2Embeddings
-
-                self.embedding = ParallelGPT2Embeddings(
-                    embed_dim=hidden_size,
-                    vocab_size=vocab_size,
-                    max_position_embeddings=-1,
-                    process_group=gpc.get_group(ParallelMode.TENSOR),
-                    padding_idx=None,
-                    sequence_parallel=gpc.config.parallel.sequence_parallel,
-                    device=device,
-                    dtype=dtype,
-                )
+            self.embedding = Embedding1D(
+                num_embeddings=vocab_size, embedding_dim=hidden_size, embed_split_hidden=embed_split_hidden
+            )
             for _, param in self.embedding.named_parameters():
                 normal_(std=0.0052)(param)
         self.embed_grad_scale = embed_grad_scale

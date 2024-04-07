@@ -5,6 +5,7 @@ from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.model.ops.fusion_ops_import_helper import internlm_init_CrossEntropyLoss
 
 
 class FlashGPTLMLoss(nn.Module):
@@ -21,23 +22,15 @@ class FlashGPTLMLoss(nn.Module):
                     print(f"use label_smoothing: {label_smoothing}")
         else:
             label_smoothing = 0
+
         self.label_smoothing = label_smoothing
-
-        if gpc.config.use_cuda_flash_attn and parallel_output:
-            from flash_attn.losses.cross_entropy import (
-                CrossEntropyLoss as FlashCrossEntropyLoss,
-            )
-
-            self.loss_fn = FlashCrossEntropyLoss(
-                reduction="mean",
-                inplace_backward=True,
-                process_group=gpc.get_group(ParallelMode.TENSOR),
-                label_smoothing=label_smoothing,
-            )  # The loss in this place is bound to the gather_output initialized by VocabParallelClassifier1D
-        else:
-            assert parallel_output is False, "parallel_output should be False when using nn.CrossEntropyLoss func"
-            # Here, the output will gather output is set in the model, so use ordinary loss
-            self.loss_fn = nn.CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)
+        self.loss_fn = internlm_init_CrossEntropyLoss(
+            parallel_output=parallel_output,
+            reduction="mean",
+            inplace_backward=True,
+            process_group=gpc.get_group(ParallelMode.TENSOR),
+            label_smoothing=self.label_smoothing,
+        )
 
     def forward(self, *args):
         if len(args) == 3:

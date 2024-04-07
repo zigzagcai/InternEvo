@@ -8,18 +8,16 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor, nn
 
-from internlm.accelerator import AcceleratorType, get_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.model.ops.fusion_ops_import_helper import try_import_fused_rotary
 
 from ..utils import gather_forward_split_backward, split_forward_gather_backward
 
-try:
-    import rotary_emb
-except (ModuleNotFoundError, ImportError):
-    pass
-
 internlm_accelerator = get_accelerator()
+
+apply_rotary_emb, apply_rotary_emb_qkv_, apply_rotary_func = None, None, None
 
 
 class Embedding1D(nn.Module):
@@ -33,6 +31,7 @@ class Embedding1D(nn.Module):
                             therefore, the embedding vector at :attr:`padding_idx` is not updated during training,
                             i.e. it remains as a fixed "pad". None by default.
         dtype (Optional[torch.dtype]): Data type None by default.
+        embed_split_hidden (Optional[Bool]): Whether to split the embed_dim in tensor parallel style.
 
     """
 
@@ -43,13 +42,19 @@ class Embedding1D(nn.Module):
         *args,
         padding_idx: int = None,
         dtype: torch.dtype = None,
+        embed_split_hidden: bool = True,
         **kwargs,
     ):
         super().__init__()
 
         self.num_embeddings = num_embeddings
         self.embed_dim = embedding_dim
-        embed_dim_per_partition = embedding_dim // gpc.tensor_parallel_size
+        self.embed_split_hidden = embed_split_hidden
+        if self.embed_split_hidden:
+            self.embed_split_hidden = gpc.tensor_parallel_size > 1
+
+        split_nums = 1 if not self.embed_split_hidden else gpc.tensor_parallel_size
+        embed_dim_per_partition = embedding_dim // split_nums
 
         self.padding_idx = padding_idx
         self.embed_args = args
@@ -58,9 +63,10 @@ class Embedding1D(nn.Module):
         self.weight = nn.Parameter(torch.empty((num_embeddings, embed_dim_per_partition), dtype=dtype))
 
     def forward(self, input_: Tensor) -> Tensor:
-        output_parallel = F.embedding(input_, self.weight, self.padding_idx, *self.embed_args, **self.embed_kwargs)
+        output = F.embedding(input_, self.weight, self.padding_idx, *self.embed_args, **self.embed_kwargs)
 
-        output = gather_forward_split_backward(output_parallel, ParallelMode.TENSOR, dim=-1)
+        if self.embed_split_hidden:
+            output = gather_forward_split_backward(output, ParallelMode.TENSOR, dim=-1)
 
         if gpc.config.parallel.sequence_parallel:
             output = split_forward_gather_backward(output, ParallelMode.TENSOR, dim=1)
@@ -94,13 +100,6 @@ def _torch_apply_rotary_func(
     return out1, out2
 
 
-def get_rotary_func():
-    if gpc.config.use_cuda_flash_attn:
-        return rotary_emb.apply_rotary
-    else:
-        return _torch_apply_rotary_func
-
-
 class ApplyRotaryEmb(torch.autograd.Function):
     """
     ApplyRotaryEmb
@@ -128,7 +127,7 @@ class ApplyRotaryEmb(torch.autograd.Function):
         out_ro = out[..., :rotary_dim]
         o1, o2 = out_ro.chunk(2, dim=-1) if not interleaved else (out_ro[..., ::2], out_ro[..., 1::2])
 
-        get_rotary_func()(
+        apply_rotary_func(
             x1,
             x2,
             rearrange(cos[:seqlen], "s d -> s 1 d"),
@@ -156,7 +155,7 @@ class ApplyRotaryEmb(torch.autograd.Function):
         dx_ro = dx[..., :rotary_dim]
         dx1, dx2 = dx_ro.chunk(2, dim=-1) if not ctx.interleaved else (dx_ro[..., ::2], dx_ro[..., 1::2])
 
-        get_rotary_func()(
+        apply_rotary_func(
             do1,
             do2,
             rearrange(cos[:seqlen], "s d -> s 1 d"),
@@ -168,14 +167,6 @@ class ApplyRotaryEmb(torch.autograd.Function):
         if rotary_dim < headdim:
             dx[..., rotary_dim:].copy_(do[..., rotary_dim:])
         return dx, None, None, None, None
-
-
-if AcceleratorType.DIPU == internlm_accelerator.get_accelerator_backend():
-    from deeplink_ext.internlm_ops.rotary.deeplink import DeeplinkApplyRotaryEmb
-
-    apply_rotary_emb = DeeplinkApplyRotaryEmb.apply
-else:
-    apply_rotary_emb = ApplyRotaryEmb.apply
 
 
 class ApplyRotaryEmbQKV_(torch.autograd.Function):
@@ -214,7 +205,7 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         re_cos = rearrange(cos, "s d -> s 1 d") if len(qkv.shape) == 4 else rearrange(cos[:seqlen], "s d -> s 1 d")
         re_sin = rearrange(sin, "s d -> s 1 d") if len(qkv.shape) == 4 else rearrange(sin[:seqlen], "s d -> s 1 d")
 
-        get_rotary_func()(q1, q2, re_cos, re_sin, q1, q2, False)
+        apply_rotary_func(q1, q2, re_cos, re_sin, q1, q2, False)
 
         k_ro = qkv[:, 1, :, :rotary_dim] if len(qkv.shape) == 4 else qkv[:, :, 1, :, :rotary_dim]
         k1, k2 = k_ro.chunk(2, dim=-1) if not interleaved else (k_ro[..., ::2], k_ro[..., 1::2])
@@ -225,7 +216,7 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
             rearrange(sin_k, "s d -> s 1 d") if len(qkv.shape) == 4 else rearrange(sin_k[:seqlen], "s d -> s 1 d")
         )
 
-        get_rotary_func()(k1, k2, re_cos_k, re_sin_k, k1, k2, False)
+        apply_rotary_func(k1, k2, re_cos_k, re_sin_k, k1, k2, False)
 
         ctx.save_for_backward(cos, sin, cos_k, sin_k)
         ctx.interleaved = interleaved
@@ -242,7 +233,7 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         re_cos = rearrange(cos, "s d -> s 1 d") if len(dqkv.shape) == 4 else rearrange(cos[:seqlen], "s d -> s 1 d")
         re_sin = rearrange(sin, "s d -> s 1 d") if len(dqkv.shape) == 4 else rearrange(sin[:seqlen], "s d -> s 1 d")
 
-        get_rotary_func()(dq1, dq2, re_cos, re_sin, dq1, dq2, True)
+        apply_rotary_func(dq1, dq2, re_cos, re_sin, dq1, dq2, True)
 
         dk_ro = dqkv[:, 1, :, :rotary_dim] if len(dqkv.shape) == 4 else dqkv[:, :, 1, :, :rotary_dim]
         dk1, dk2 = dk_ro.chunk(2, dim=-1) if not ctx.interleaved else (dk_ro[..., ::2], dk_ro[..., 1::2])
@@ -253,17 +244,18 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
             rearrange(sin_k, "s d -> s 1 d") if len(dqkv.shape) == 4 else rearrange(sin_k[:seqlen], "s d -> s 1 d")
         )
 
-        get_rotary_func()(dk1, dk2, re_cos_k, re_sin_k, dk1, dk2, True)
+        apply_rotary_func(dk1, dk2, re_cos_k, re_sin_k, dk1, dk2, True)
 
         return dqkv, None, None, None, None, None
 
 
-if AcceleratorType.DIPU == internlm_accelerator.get_accelerator_backend():
-    from deeplink_ext.internlm_ops.rotary.deeplink import DeeplinkApplyRotaryEmbQKV_
-
-    apply_rotary_emb_qkv_ = DeeplinkApplyRotaryEmbQKV_.apply
-else:
+apply_rotary_emb, apply_rotary_emb_qkv_, apply_rotary_func = try_import_fused_rotary()
+if apply_rotary_emb is None:
+    apply_rotary_emb = ApplyRotaryEmb.apply
+if apply_rotary_emb_qkv_ is None:
     apply_rotary_emb_qkv_ = ApplyRotaryEmbQKV_.apply
+if apply_rotary_func is None:
+    apply_rotary_func = _torch_apply_rotary_func
 
 
 class RotaryEmbedding(torch.nn.Module):

@@ -16,7 +16,7 @@ from internlm.model.modules.multi_head_attention import (
     CrossAttention,
     SelfAttention,
 )
-from internlm.model.utils import try_import_RMSNorm
+from internlm.model.ops.fusion_ops_import_helper import try_import_RMSNorm
 
 RMSNorm = try_import_RMSNorm()
 

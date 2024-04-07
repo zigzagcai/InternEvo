@@ -321,15 +321,9 @@ def args_sanity_check():
     if "use_flash_attn" not in gpc.config.model:
         gpc.config.model._add_item("use_flash_attn", True)
 
-    gpc.config["use_cuda_flash_attn"] = False
-    if gpc.config.model.use_flash_attn and (
-        internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]
-    ):
-        gpc.config["use_cuda_flash_attn"] = True
-
     old_parallel_output = gpc.config.model.get("parallel_output", None)
     # Try to change user setting
-    if not gpc.config.use_cuda_flash_attn:
+    if internlm_accelerator.get_accelerator_backend() is not AcceleratorType.GPU:
         gpc.config.model.update({"parallel_output": False})
         if old_parallel_output is True and gpc.is_rank_for_log():
             logger.warning(

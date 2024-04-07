@@ -755,23 +755,22 @@ class MHA(nn.Module):
                             if total_kv.dtype not in [torch.float16, torch.bfloat16]:
                                 total_kv = total_kv.to(torch.bfloat16)
 
-                    if gpc.config.use_cuda_flash_attn:
+                    try:
+                        from flash_attn.flash_attn_interface import (
+                            flash_attn_unpadded_func,
+                        )
+                    except ImportError:
                         try:
                             from flash_attn.flash_attn_interface import (
-                                flash_attn_unpadded_func,
+                                flash_attn_unpadded_kvpacked_func as flash_attn_unpadded_func,
                             )
                         except ImportError:
                             try:
                                 from flash_attn.flash_attn_interface import (
-                                    flash_attn_unpadded_kvpacked_func as flash_attn_unpadded_func,
+                                    flash_attn_varlen_kvpacked_func as flash_attn_unpadded_func,
                                 )
                             except ImportError:
-                                try:
-                                    from flash_attn.flash_attn_interface import (
-                                        flash_attn_varlen_kvpacked_func as flash_attn_unpadded_func,
-                                    )
-                                except ImportError:
-                                    raise ImportError("Please check your flash_attn version >= 1.0.5.")
+                                raise ImportError("Please check your flash_attn version >= 1.0.5.")
 
                         output = flash_attn_unpadded_func(
                             total_q,

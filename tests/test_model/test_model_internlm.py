@@ -57,7 +57,6 @@ config = Config(
         resume_tb_folder="",
         tensorboard_folder="",
         alert_address=None,
-        use_cuda_flash_attn=True,
         monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None, light_monitor_address=None)),
     )
 )

@@ -120,7 +120,6 @@ config = Config(
             label_smoothing=0,
         ),
         cudnn_deterministic=True,
-        use_cuda_flash_attn=True,
     )
 )
 
