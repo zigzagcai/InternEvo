@@ -358,6 +358,9 @@ if __name__ == "__main__":
     ):
         try:
             main(args)
+        except AssertionError as e:
+            logger.error(e)
+            sys.exit(1)
         except Exception:
             logger.error(
                 f"Raise exception from {hostname} with rank id: {gpc.get_global_rank()}\n{traceback.format_exc()}",
@@ -365,3 +368,4 @@ if __name__ == "__main__":
             mm.monitor_exception(
                 alert_address=gpc.config.monitor.alert.feishu_alert_address, excp_info=traceback.format_exc()
             )
+            sys.exit(1)
