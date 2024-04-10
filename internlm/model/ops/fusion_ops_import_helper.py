@@ -83,23 +83,6 @@ def try_import_fused_rotary() -> Tuple[Union[None, Callable], Union[None, Callab
     return None, None, None
 
 
-# ParallelGPT2Embeddings
-def try_import_ParallelGPT2Embeddings(embed_split_hidden):
-    try:
-        device_backend = internlm_accelerator.get_accelerator_backend()
-
-        if not embed_split_hidden:
-            if device_backend is AcceleratorType.GPU:
-                from flash_attn.modules.embedding import ParallelGPT2Embeddings
-
-                return ParallelGPT2Embeddings
-
-    except (ModuleNotFoundError, ImportError):
-        pass
-
-    return None
-
-
 # CrossEntropyLoss
 def internlm_init_CrossEntropyLoss(
     parallel_output: bool, reduction="none", label_smoothing=0, inplace_backward=True, process_group=None, **kwargs

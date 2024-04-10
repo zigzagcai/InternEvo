@@ -140,17 +140,24 @@ def launch_time():
     return CURRENT_TIME
 
 
-def set_random_seed(seed):
-    """Set random seed for reproducability."""
+def set_random_seed(seed, cuda_deterministic=False):
+    """Set all random seed for reproducability."""
     # It is recommended to use this only when inference.
-    if seed is not None:
-        assert seed > 0
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
+    assert seed > 0, f"Seed should be a positive integer, but got {seed}"
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if internlm_accelerator.is_available():
         internlm_accelerator.manual_seed(seed)
         # if you are using multi-GPU.
         internlm_accelerator.manual_seed_all(seed)
+
+    if cuda_deterministic:  # slower, more reproducible
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    else:
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
 
 
 @contextmanager

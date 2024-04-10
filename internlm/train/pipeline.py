@@ -47,7 +47,6 @@ from internlm.model.moe.megablock.mlp import (
 from internlm.model.moe.moe import MoE
 from internlm.model.ops.fusion_ops_import_helper import (
     try_import_FusedAdamW,
-    try_import_ParallelGPT2Embeddings,
     try_import_RMSNorm,
 )
 from internlm.model.ops.linear import (
@@ -114,9 +113,6 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
 
         # embedding and head
         embedding_head_cls = (Embedding1D, BaseScaleColumnParallelLinear)
-        ParallelGPT2Embeddings = try_import_ParallelGPT2Embeddings(gpc.config.model.embed_split_hidden)
-        if ParallelGPT2Embeddings:
-            embedding_head_cls = (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)
 
         if isinstance(module, embedding_head_cls):
             for param in module.parameters():

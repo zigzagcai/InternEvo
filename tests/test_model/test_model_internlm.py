@@ -15,6 +15,7 @@ from internlm.model.modeling_internlm import PackedFlashBaseLayer1D
 from internlm.model.ops.linear import RewardModelLinear, ScaleColumnParallelLinear
 from internlm.model.utils import gather_forward_split_backward
 from internlm.utils.common import get_current_device
+from tests.common_fixture import find_free_port
 
 internlm_accelerator = get_accelerator()
 
@@ -62,14 +63,14 @@ config = Config(
 )
 
 
-def build_environment(rank, world_size):
+def build_environment(rank, world_size, free_port):
     import os
 
     os.environ["RANK"] = str(rank)
     os.environ["LOCAL_RANK"] = str(rank)
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = "12345"
+    os.environ["MASTER_PORT"] = free_port
     internlm_accelerator.empty_cache()
     # launcher="torch"
     internlm.launch_from_torch(config=config, seed=1024)
@@ -92,8 +93,8 @@ def seed_all(seed, cuda_deterministic=False):
 
 def check_block(args):
     # init
-    rank, world_size = args
-    build_environment(rank, world_size)
+    rank, world_size, free_port = args
+    build_environment(rank, world_size, free_port)
     device = get_current_device()
     rtol, atol = (1e-3, 5e-3)
 
@@ -203,8 +204,8 @@ def check_block(args):
 
 def check_head(args):
     # init
-    rank, world_size, is_reward = args
-    build_environment(rank, world_size)
+    rank, world_size, free_port, is_reward = args
+    build_environment(rank, world_size, free_port)
     device = get_current_device()
     rtol, atol = (1e-3, 5e-3)
     hidden_size = 4
@@ -301,10 +302,10 @@ def check_head(args):
 
 def check_gather_forward(args):
     # init
-    rank, world_size, parallel_tensor = args
+    rank, world_size, free_port, parallel_tensor = args
     assert parallel_tensor in [1, 2]
     config.parallel.tensor = parallel_tensor
-    build_environment(rank, world_size)
+    build_environment(rank, world_size, free_port)
     device = get_current_device()
     rtol, atol = (1e-3, 5e-3)
 
@@ -396,8 +397,9 @@ def check_gather_forward(args):
 @pytest.mark.block
 def test_block():
     ctx = mp.get_context("spawn")
+    free_port = str(find_free_port())
     with ctx.Pool(processes=8) as pool:
-        pool.map(check_block, [[rank, 8] for rank in range(8)])
+        pool.map(check_block, [[rank, 8, free_port] for rank in range(8)])
         pool.close()
         pool.join()
 
@@ -406,8 +408,9 @@ def test_block():
 @pytest.mark.parametrize("is_reward", [True, False])
 def test_head(is_reward):
     ctx = mp.get_context("spawn")
+    free_port = str(find_free_port())
     with ctx.Pool(processes=8) as pool:
-        pool.map(check_head, [[rank, 8, is_reward] for rank in range(8)])
+        pool.map(check_head, [[rank, 8, free_port, is_reward] for rank in range(8)])
         pool.close()
         pool.join()
 
@@ -416,8 +419,9 @@ def test_head(is_reward):
 @pytest.mark.parametrize("parallel_tensor", [1, 2])
 def test_gather_forward(parallel_tensor):
     ctx = mp.get_context("spawn")
+    free_port = str(find_free_port())
     with ctx.Pool(processes=8) as pool:
-        pool.map(check_gather_forward, [[rank, 8, parallel_tensor] for rank in range(8)])
+        pool.map(check_gather_forward, [[rank, 8, free_port, parallel_tensor] for rank in range(8)])
         pool.close()
         pool.join()
 
