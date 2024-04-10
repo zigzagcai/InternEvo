@@ -2,6 +2,7 @@
 # -*- encoding: utf-8 -*-
 
 import logging
+import os
 
 LOGGER_NAME = "internlm"
 LOGGER_FORMAT = "%(asctime)s\t%(levelname)s %(filename)s:%(lineno)s in %(funcName)s -- %(message)s"
@@ -11,8 +12,16 @@ LOGGER_LEVEL_HELP = (
     "The logging level threshold, choices=['debug', 'info', 'warning', 'error', 'critical'], default='info'"
 )
 
+std_logger = None
 
-def get_logger(logger_name: str = LOGGER_NAME, logging_level: str = LOGGER_LEVEL) -> logging.Logger:
+
+def get_logger(
+    logger_name: str = LOGGER_NAME,
+    logging_level: str = LOGGER_LEVEL,
+    launch_time: str = None,
+    job_name: str = None,
+    file_name: str = None,
+) -> logging.Logger:
     """Configure the logger that is used for uniscale framework.
 
     Args:
@@ -24,6 +33,9 @@ def get_logger(logger_name: str = LOGGER_NAME, logging_level: str = LOGGER_LEVEL
         logger (logging.Logger): the created or modified logger.
 
     """
+    global std_logger
+    if std_logger is not None:
+        return std_logger
 
     logger = logging.getLogger(logger_name)
 
@@ -33,10 +45,26 @@ def get_logger(logger_name: str = LOGGER_NAME, logging_level: str = LOGGER_LEVEL
 
     logging_level = logging.getLevelName(logging_level.upper())
 
+    # add stream handler
     handler = logging.StreamHandler()
     handler.setLevel(logging_level)
     logger.setLevel(logging_level)
     handler.setFormatter(logging.Formatter(LOGGER_FORMAT))
     logger.addHandler(handler)
+
+    # add file handler
+    if file_name is not None:
+        log_folder = os.path.join("RUN", job_name, launch_time, "logs")
+        log_filepath = os.path.join(log_folder, file_name)
+        try:
+            os.makedirs(log_folder, exist_ok=True)
+        except FileExistsError:
+            pass
+        filehandler = logging.FileHandler(log_filepath)
+        filehandler.setLevel(logging_level)
+        filehandler.setFormatter(logging.Formatter(LOGGER_FORMAT))
+        logger.addHandler(filehandler)
+
+        std_logger = logger
 
     return logger

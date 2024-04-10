@@ -77,6 +77,10 @@ def main(args):
     objs = [current_time]
     dist.broadcast_object_list(objs, src=0)
     current_time = objs[0].replace(":", ".")
+    global logger
+    logger = get_logger(
+        __file__, launch_time=current_time, job_name=gpc.config.JOB_NAME, file_name=get_parallel_log_file_name()
+    )
 
     # initialize model
     model = initialize_model()
