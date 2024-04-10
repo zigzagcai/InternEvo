@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+import logging
 import socket
 import time
 import traceback
@@ -48,7 +49,7 @@ from internlm.utils.simple_memory_profiler import SimpleMemoryProfiler
 from internlm.utils.writer import Writer
 
 # global llm logger
-logger = get_logger(__file__)
+logger = logging.getLogger(__file__)
 
 
 def main(args):
@@ -256,7 +257,6 @@ def main(args):
                 moe_loss=moe_loss,
                 grad_norm=grad_norm_groups,
                 metric=metric,
-                update_panel=False,
             )
 
             timer("one-batch").stop()

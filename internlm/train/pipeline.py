@@ -482,7 +482,6 @@ def record_current_batch_training_metrics(
     moe_loss,
     grad_norm,
     metric,
-    update_panel,
 ):
     """
     Print some training metrics of current batch.
@@ -609,31 +608,7 @@ def record_current_batch_training_metrics(
             else:
                 writer.add_scalar(key=key, value=value, step=train_state.step_count)
 
-        if update_panel:
-            # metrics shown with dashboard panels
-            panel_metrics = {
-                "step": batch_count,
-                "lr": lr,
-                "num_consumed_tokens": train_state.num_consumed_tokens,
-                "loss": loss.item() - moe_loss.item() if moe_loss is not None else loss.item(),
-                "flops": tflops,
-                "tgs": last_tgs_1,
-                "acc": acc_perplex["acc"],
-                "perplexity": acc_perplex["perplexity"],
-                "fwd_bwd_time": fwd_bwd_time,
-            }
-            if moe_loss is not None:
-                panel_metrics["moe_loss"] = moe_loss.item()
-            for norm_key, norm_value in grad_norm.items():
-                panel_metrics[norm_key] = norm_value
-
-            logger.info(
-                "{line}",
-                line=line,
-                extra=panel_metrics,
-            )
-        else:
-            logger.info(line)
+        logger.info(line)
 
         # if loss spike occurs, send alert info to feishu
         mm.monitor_loss_spike(
