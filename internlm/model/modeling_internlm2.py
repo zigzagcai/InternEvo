@@ -930,7 +930,7 @@ class PackedFlashLlama1D(nn.Module):
 
     def forward(self, hidden_states=None, cu_seqlens=None, input_ids=None, indexes=None, inference_params=None):
         # attention_mask: compute attention on the places where the value is 1
-        if hasattr(self, "tok_embeddings"):
+        if hasattr(self, "tok_embeddings") and input_ids is not None:
             hidden_states = self.tok_embeddings(input_ids)
             if self.embed_grad_scale != 1:
                 hidden_states = (

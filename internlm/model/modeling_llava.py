@@ -253,7 +253,7 @@ class PackedFlashLlava1D(nn.Module):
             xs.append(x)
 
         # attention_mask: compute attention on the places where the value is 1
-        if hasattr(self, "tok_embeddings"):
+        if hasattr(self, "tok_embeddings") and input_ids is not None:
             org_ids = input_ids.clone()
             input_ids[input_ids == self.image_token_id] = 0
             hidden_states = self.tok_embeddings(input_ids).clone()
