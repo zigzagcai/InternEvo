@@ -138,7 +138,8 @@ def try_import_FusedAdamW():
     backend = internlm_accelerator.get_accelerator_backend()
     try:
         if backend is AcceleratorType.GPU:
-            adam_extra_kwargs["fused"] = True
+            if torch.__version__ >= "2.1.0":
+                adam_extra_kwargs["fused"] = True
 
             if gpc.is_rank_for_log():
                 logger.warning(
