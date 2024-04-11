@@ -269,7 +269,6 @@ def main(args):
                     writer=writer,
                     logger=logger,
                     step_count=train_state.step_count,
-                    update_panel=False,
                 )
 
             # checkpoint the training states in specific steps, which is determined by the args "checkpoint_every"

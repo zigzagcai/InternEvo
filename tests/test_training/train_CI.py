@@ -303,7 +303,6 @@ def main(args):
                 moe_loss=moe_loss,
                 grad_norm=grad_norm_groups,
                 metric=metric,
-                update_panel=False,
             )
 
             timer("one-batch").stop()
@@ -316,7 +315,6 @@ def main(args):
                     writer=writer,
                     logger=logger,
                     step_count=train_state.step_count,
-                    update_panel=False,
                 )
 
             # check model weights
