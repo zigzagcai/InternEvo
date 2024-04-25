@@ -167,6 +167,7 @@ class NonPipelineScheduler(BaseScheduler):
         forward_only: bool = False,
         return_loss: bool = True,
         return_output_label: bool = True,
+        loss_weight: float = 1.0,
     ):
         """The process function that loads a batch of dataset and feeds it to the model.
         The returned labels and loss will None if :attr:`return_loss` is False.
@@ -178,7 +179,7 @@ class NonPipelineScheduler(BaseScheduler):
                 If True, the model is run for the forward pass, else back propagation will be executed.
             return_loss (bool, optional): Loss will be returned if True.
             return_output_label (bool, optional): Output and label will be returned if True.
-
+            loss_weight (float, optional): Loss will be scaled(loss*loss_weight) before backward.
         Returns:
             Tuple[:class:`torch.Tensor`]: A tuple of (output, label, loss), loss and label could be None.
         """
@@ -218,7 +219,7 @@ class NonPipelineScheduler(BaseScheduler):
             _data, _label = self._load_accum_batch(data, label)
 
             _output, _loss, _moe_loss = self._train_one_batch(
-                _data, _label, engine, forward_only, return_loss, return_output_label, self._grad_accum_size
+                _data, _label, engine, forward_only, return_loss, return_output_label, self._grad_accum_size / loss_weight
             )
 
             if return_loss:
