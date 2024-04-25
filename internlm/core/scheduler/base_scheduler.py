@@ -44,9 +44,13 @@ class BaseScheduler(ABC):
         so the data of batch is unpacked and 'bsz_stride' is equal to 'micro_bsz'.
         In all other cases 'bsz_stride' should be equal to 1.
         """
-        assert isinstance(data, dict) and isinstance(label, torch.Tensor)
+        assert isinstance(data, dict)
+
         micro_batch_data = {k: v[offset : offset + bsz_stride] for k, v in data.items()}
-        micro_batch_label = label[offset : offset + bsz_stride]
+        if isinstance(label, torch.Tensor):
+            micro_batch_label = label[offset : offset + bsz_stride]
+        else:
+            micro_batch_label = {k: v[offset : offset + bsz_stride] if v.dim()>0 else v  for k, v in label.items()}
 
         return micro_batch_data, micro_batch_label
 
@@ -109,7 +113,7 @@ class BaseScheduler(ABC):
         if isinstance(outputs, (tuple, list)) and isinstance(labels, (tuple, list)):
             return engine.criterion(*outputs, *labels)
         elif isinstance(outputs, (tuple, list)) and isinstance(labels, dict):
-            return engine.criterion(*outputs, **labels)
+            return engine.criterion(*outputs, labels)
         elif isinstance(outputs, dict) and isinstance(labels, dict):
             return engine.criterion(**outputs, **labels)
         elif isinstance(outputs, dict) and isinstance(labels, (list, tuple)):
