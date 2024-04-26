@@ -964,3 +964,23 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=1.0, filter_value=-float("Inf")
         indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
         logits[indices_to_remove] = filter_value
     return logits
+
+
+@torch.no_grad()
+def get_attention_mask(
+    tokens,
+    bos_token_id=1,
+):
+    has_bos = torch.all(tokens[:, 0].eq(bos_token_id))
+    if has_bos:
+        bos_pos = torch.where(tokens.eq(bos_token_id), 1, 0)
+        bos_sum = bos_pos.cumsum(dim=-1)
+        bos_pos = torch.where(bos_sum.eq(bos_sum[:, -1:]), 0, 1)
+        to_atten_x = bos_pos[:, :, None]
+        to_atten_y = bos_pos[:, None, :]
+    else:
+        bos_pos = torch.where(tokens.eq(bos_token_id), 1, 0)
+        to_atten_x = bos_pos[:, :, None]
+        to_atten_y = bos_pos[:, None, :]
+    attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
+    return attention_mask
