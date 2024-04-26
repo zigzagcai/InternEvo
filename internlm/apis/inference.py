@@ -982,7 +982,11 @@ def get_attention_mask(
         bos_pos = torch.where(tokens.eq(bos_token_id), 1, 0)
         to_atten_x = bos_pos[:, :, None]
         to_atten_y = bos_pos[:, None, :]
-    attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
+    # attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
+    to_atten_y_new = to_atten_y.repeat(1, to_atten_x.shape[1], 1)
+    to_atten_x_new = to_atten_x.repeat(1, 1, to_atten_y.shape[2])
+    attention_mask = torch.logical_or(to_atten_x_new, to_atten_y_new).eq(1)
+
     return attention_mask
 
 def batch_tokenize_process_fn(
