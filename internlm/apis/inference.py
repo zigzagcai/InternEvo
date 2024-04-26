@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Union
 
 import torch
 import torch.nn.functional as F
@@ -984,3 +984,78 @@ def get_attention_mask(
         to_atten_y = bos_pos[:, None, :]
     attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
     return attention_mask
+
+def batch_tokenize_process_fn(
+    batch: Union[str, List[str], List[Dict], Dict], tokenizer, add_bos: bool = True, add_eos: bool = False
+) -> Union[List, Dict]:
+    """Data post-processing function for tokenize.
+
+    This function can be directly used in the map function of ``DatasetDict`` and supports batched=True.
+
+    Args:
+        batch (Union[str, List[str], List[Dict], Dict]): Data used to tokenize which can be of the following
+         categories:
+            (a) A string;
+            (b) A list whose content can be a string or a dictionary. If it is a dictionary,
+                it needs to contain the "content" field;
+            (c) A dictionary-like object, which should contain the "content" field.
+        tokenizer : Currently only sentencepiece is supported.
+        add_bos (bool, optional): Whether to add bos token. Defaults to True.
+        add_eos (bool, optional): Whether to add eos token. Defaults to False.
+
+    Returns:
+        Union[List, Dict]: tokenized data.
+    """
+
+    def _tokenize(text):
+        tokens = [tokenizer.bos_id()] if add_bos else []
+        tokens += tokenizer.encode(text)
+        if add_eos:
+            tokens.append(tokenizer.eos_id())
+        return tokens
+
+    if isinstance(batch, str):
+        return _tokenize(batch)
+    elif isinstance(batch, (List, Tuple)):
+        if len(batch) == 0:
+            return None
+        if isinstance(batch[0], str):
+            return [_tokenize(w) for w in batch]
+        if isinstance(batch[0], Dict):
+            for sample in batch:
+                sample["input_ids"] = _tokenize(sample["content"])
+            return batch
+    else:
+        try:
+            batch["input_ids"] = [_tokenize(w) for w in batch["content"]]
+            batch.pop("content")
+            return batch
+        except Exception as e:
+            print(
+                f"The type of parameter ``batch`` is wrong, type:{type(batch)}, batch: {batch}."
+            )
+            raise e
+
+def batchify_input_ids(batch: List[Dict], pad_token_id: int =0, return_dict:bool =False) -> Union[Dict, torch.Tensor]:
+    input_ids = []
+    max_length = max([len(w["input_ids"] if isinstance(w, Dict) else w) for w in batch])
+    for sample in batch:
+        cur_input_ids = torch.LongTensor(sample["input_ids"] if isinstance(sample, Dict) else sample)
+        # left padding for generation;
+        input_ids.append(
+            torch.cat(
+                [
+                    cur_input_ids.new_full((max_length - len(cur_input_ids),), fill_value=pad_token_id),
+                    cur_input_ids,
+                ]
+            )
+        )
+    input_ids = torch.stack(input_ids)
+    return input_ids if not return_dict else {"input_ids": input_ids}
+
+def batch_tokenize(prompts: List[str], tokenizer):
+    tokenizer_out = batch_tokenize_process_fn(prompts, tokenizer)
+
+    tokens = batchify_input_ids(tokenizer_out, return_dict=False)
+
+    return tokens
