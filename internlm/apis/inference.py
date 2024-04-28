@@ -677,20 +677,7 @@ def _beam_search_generate(
     batch_inds_with_numbeams_interval = (torch.arange(batch_size) * num_beams).view(-1, 1).to(token_ids)
 
     while cur_len < real_max_length:
-        if has_bos:
-            bos_pos = torch.where(token_ids.eq(bos_token_id), 1, 0)
-            bos_sum = bos_pos.cumsum(dim=-1)
-            bos_pos = torch.where(bos_sum.eq(bos_sum[:, -1:]), 0, 1)
-            to_atten_x = bos_pos[:, :, None]
-            to_atten_y = bos_pos[:, None, :]
-            # attention_mask = torch.einsum('bno,bom->bnm', to_atten_x, to_atten_y).eq(1)
-        else:
-            bos_pos = torch.where(token_ids.eq(bos_token_id), 1, 0)
-            to_atten_x = bos_pos[:, :, None]
-            to_atten_y = bos_pos[:, None, :]
-            # attention_mask = torch.einsum('bno,bom->bnm', to_atten_x, to_atten_y).eq(1)
-        attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
-        # attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
+        attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
 
 
         inference_params.attention_mask = attention_mask
@@ -990,6 +977,16 @@ def batch_tokenize_process_fn(
             raise e
 
 def batchify_input_ids(batch: List[Dict], pad_token_id: int =0, return_dict:bool =False) -> Union[Dict, torch.Tensor]:
+    """ Tokenize a list of prompts. Right Padding.
+
+    Args:
+        batch (List[Dict]):  a list of prompts
+        pad_token_id (int, optional): Defaults to 0.
+        return_dict (bool, optional): Defaults to False.
+
+    Returns:
+        Union[Dict, torch.Tensor]: input_ids or dict(input_ids=input_ids)
+    """
     input_ids = []
     max_length = max([len(w["input_ids"] if isinstance(w, Dict) else w) for w in batch])
     for sample in batch:
