@@ -357,17 +357,8 @@ def _streaming_no_beam_search_generate(
         eos_token_id = torch.LongTensor(eos_token_id).to(tokens.device)
 
     has_bos = torch.all(tokens[:, 0].eq(bos_token_id))
-    if has_bos:
-        bos_pos = torch.where(tokens.eq(bos_token_id), 1, 0)
-        bos_sum = bos_pos.cumsum(dim=-1)
-        bos_pos = torch.where(bos_sum.eq(bos_sum[:, -1:]), 0, 1)
-        to_atten_x = bos_pos[:, :, None]
-        to_atten_y = bos_pos[:, None, :]
-    else:
-        bos_pos = torch.where(tokens.eq(bos_token_id), 1, 0)
-        to_atten_x = bos_pos[:, :, None]
-        to_atten_y = bos_pos[:, None, :]
-    attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
+    attention_mask = get_attention_mask(tokens, has_bos, bos_token_id=bos_token_id)
+
     if inference_params is None:
         inference_params = InferenceParams(
             max_sequence_len=max_length,
@@ -401,17 +392,8 @@ def _streaming_no_beam_search_generate(
 
     while cur_len < real_max_length:
         # batch_size x vocab_size
-        if has_bos:
-            bos_pos = torch.where(token_ids.eq(bos_token_id), 1, 0)
-            bos_sum = bos_pos.cumsum(dim=-1)
-            bos_pos = torch.where(bos_sum.eq(bos_sum[:, -1:]), 0, 1)
-            to_atten_x = bos_pos[:, :, None]
-            to_atten_y = bos_pos[:, None, :]
-        else:
-            bos_pos = torch.where(token_ids.eq(bos_token_id), 1, 0)
-            to_atten_x = bos_pos[:, :, None]
-            to_atten_y = bos_pos[:, None, :]
-        attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
+        attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
+
         inference_params.attention_mask = attention_mask
         scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
 
@@ -502,17 +484,9 @@ def _no_beam_search_generate(
         eos_token_id = torch.LongTensor(eos_token_id).to(tokens.device)
 
     has_bos = torch.all(tokens[:, 0].eq(bos_token_id))
-    if has_bos:
-        bos_pos = torch.where(tokens.eq(bos_token_id), 1, 0)
-        bos_sum = bos_pos.cumsum(dim=-1)
-        bos_pos = torch.where(bos_sum.eq(bos_sum[:, -1:]), 0, 1)
-        to_atten_x = bos_pos[:, :, None]
-        to_atten_y = bos_pos[:, None, :]
-    else:
-        bos_pos = torch.where(tokens.eq(bos_token_id), 1, 0)
-        to_atten_x = bos_pos[:, :, None]
-        to_atten_y = bos_pos[:, None, :]
-    attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
+
+    attention_mask = get_attention_mask(tokens, has_bos, bos_token_id)
+
     if inference_params is None:
         inference_params = InferenceParams(
             max_sequence_len=max_length,
@@ -544,19 +518,8 @@ def _no_beam_search_generate(
 
     while cur_len < real_max_length:
         # batch_size x vocab_size
-        if has_bos:
-            bos_pos = torch.where(token_ids.eq(bos_token_id), 1, 0)
-            bos_sum = bos_pos.cumsum(dim=-1)
-            bos_pos = torch.where(bos_sum.eq(bos_sum[:, -1:]), 0, 1)
-            to_atten_x = bos_pos[:, :, None]
-            to_atten_y = bos_pos[:, None, :]
-            # attention_mask = torch.einsum('bno,bom->bnm', to_atten_x, to_atten_y).eq(1)
-        else:
-            bos_pos = torch.where(token_ids.eq(bos_token_id), 1, 0)
-            to_atten_x = bos_pos[:, :, None]
-            to_atten_y = bos_pos[:, None, :]
-            # attention_mask = torch.einsum('bno,bom->bnm', to_atten_x, to_atten_y).eq(1)
-        attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
+        attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
+
         inference_params.attention_mask = attention_mask
         scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
 
@@ -654,19 +617,7 @@ def _beam_search_generate(
 
     has_bos = torch.all(tokens[:, 0].eq(bos_token_id))
 
-    if has_bos:
-        bos_pos = torch.where(tokens.eq(bos_token_id), 1, 0)
-        bos_sum = bos_pos.cumsum(dim=-1)
-        bos_pos = torch.where(bos_sum.eq(bos_sum[:, -1:]), 0, 1)
-        to_atten_x = bos_pos[:, :, None]
-        to_atten_y = bos_pos[:, None, :]
-        # attention_mask = torch.einsum('bno,bom->bnm', to_atten_x, to_atten_y).eq(1)
-    else:
-        bos_pos = torch.where(tokens.eq(bos_token_id), 1, 0)
-        to_atten_x = bos_pos[:, :, None]
-        to_atten_y = bos_pos[:, None, :]
-        # attention_mask = torch.einsum('bno,bom->bnm', to_atten_x, to_atten_y).eq(1)
-    attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
+    attention_mask = get_attention_mask(tokens, has_bos, bos_token_id=bos_token_id)
 
     if inference_params is None:
         inference_params = InferenceParams(
@@ -739,6 +690,8 @@ def _beam_search_generate(
             to_atten_y = bos_pos[:, None, :]
             # attention_mask = torch.einsum('bno,bom->bnm', to_atten_x, to_atten_y).eq(1)
         attention_mask = torch.logical_or(to_atten_x, to_atten_y).eq(1)
+        # attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
+
 
         inference_params.attention_mask = attention_mask
         # (bsz x num_beams, vocab_size)
@@ -967,11 +920,7 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=1.0, filter_value=-float("Inf")
 
 
 @torch.no_grad()
-def get_attention_mask(
-    tokens,
-    bos_token_id=1,
-):
-    has_bos = torch.all(tokens[:, 0].eq(bos_token_id))
+def get_attention_mask(tokens, has_bos, bos_token_id=1):
     if has_bos:
         bos_pos = torch.where(tokens.eq(bos_token_id), 1, 0)
         bos_sum = bos_pos.cumsum(dim=-1)
