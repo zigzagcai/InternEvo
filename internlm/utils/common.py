@@ -76,12 +76,12 @@ def move_to_device(data):
         data_to_return = []
         for element in data:
             if isinstance(element, dict):
-                data_to_return.append({k: _move_tensor(v) for k, v in element.items()})
+                data_to_return.append({k: _move_tensor(v) if torch.is_tensor(v) else v for k, v in element.items()})
             else:
-                data_to_return.append(_move_tensor(element))
+                data_to_return.append(_move_tensor(element) if torch.is_tensor(element) else element)
         data = data_to_return
     elif isinstance(data, dict):
-        data = {k: _move_tensor(v) for k, v in data.items()}
+        data = {k: _move_tensor(v) if torch.is_tensor(v) else v for k, v in data.items()}
     else:
         raise TypeError(f"Expected batch data to be of type torch.Tensor, list, tuple, or dict, but got {type(data)}")
     return data

@@ -36,6 +36,7 @@ class InferenceParams:
         self.fused_ft_kernel: bool = False
         self.lengths_per_sample = lengths_per_sample
         self.attention_mask = attention_mask
+        self.total_attention_mask = attention_mask
 
     def reorder_state(self, indices):
         if self.lengths_per_sample is not None:
@@ -44,6 +45,9 @@ class InferenceParams:
             value = value.index_select(index=indices, dim=0)
             self.key_value_memory_dict[key] = value
 
+    def set_batch_offset(self, offset, bsz):
+        self.batch_size_offset = offset
+        self.attention_mask = self.total_attention_mask[offset : offset + bsz]
 
 def _get_model_device(model):
     """
@@ -977,7 +981,7 @@ def batch_tokenize_process_fn(
             raise e
 
 def batchify_input_ids(batch: List[Dict], pad_token_id: int =0, return_dict:bool =False) -> Union[Dict, torch.Tensor]:
-    """ Tokenize a list of prompts. Right Padding.
+    """ Tokenize a list of prompts with Left Padding.
 
     Args:
         batch (List[Dict]):  a list of prompts

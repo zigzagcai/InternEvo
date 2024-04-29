@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, Iterable
 import torch
 
 from internlm.core.engine import Engine
-
+from internlm.apis.inference import InferenceParams
 
 class BaseScheduler(ABC):
     """A basic helper class to control the process of training or evaluation.
@@ -46,12 +46,22 @@ class BaseScheduler(ABC):
         """
         assert isinstance(data, dict)
 
-        micro_batch_data = {k: v[offset : offset + bsz_stride] for k, v in data.items()}
+        micro_batch_data = {}
+        for k, v in data.items():
+            if isinstance(v, torch.Tensor):
+                micro_batch_data[k] = v[offset : offset + bsz_stride]
+            elif isinstance(v, InferenceParams):
+                v.set_batch_offset(offset, bsz_stride)
+                micro_batch_data[k] = v
+            else:
+                raise NotImplementedError(f"value of type {type(v)} is not supported")
+
         if isinstance(label, torch.Tensor):
             micro_batch_label = label[offset : offset + bsz_stride]
-        else:
+        elif isinstance(label, Dict):
             micro_batch_label = {k: v[offset : offset + bsz_stride] if v.dim()>0 else v  for k, v in label.items()}
-
+        else:
+            micro_batch_label = label
         return micro_batch_data, micro_batch_label
 
     @abstractmethod
