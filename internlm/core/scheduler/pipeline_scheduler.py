@@ -330,7 +330,7 @@ class PipelineScheduler(BaseScheduler):
 
         return output_obj, moe_loss
 
-    def _backward_step(self, engine, step_id, input_obj, output_obj, output_obj_grad, moe_loss=None, loss_weight = 1.0):
+    def _backward_step(self, engine, step_id, input_obj, output_obj, output_obj_grad, moe_loss=None):
         """
         Backward step through the passed-in output tensor. If it is the last stage, the
         output_obj_grad is None, otherwise it is the gradients with respect to stage's output tensor.
@@ -366,12 +366,12 @@ class PipelineScheduler(BaseScheduler):
         with switch_optimizer_grad_sync_skip_mode(engine.optimizer, skip_grad_sync):
             if moe_loss is None or moe_loss.item() == 0.0:
                 if output_obj_grad is None:
-                    engine.backward(output_obj * loss_weight)
+                    engine.backward(output_obj)
                 else:
                     engine.backward_by_grad(output_obj, output_obj_grad)
             else:
                 if output_obj_grad is None:
-                    engine.backward(output_obj * loss_weight + moe_loss)
+                    engine.backward(output_obj + moe_loss)
                 else:
                     # scale the latent loss
                     moe_loss = moe_loss * engine.optimizer.loss_scale
@@ -468,7 +468,7 @@ class PipelineScheduler(BaseScheduler):
 
         return output, label, accum_loss, accum_moe_loss
 
-    def _forward_backward_step(self, engine, return_loss=True, return_output_label=True, loss_weight = 1.0,):
+    def _forward_backward_step(self, engine, return_loss=True, return_output_label=True,):
         """
         This function schedules the forward and backward computation of microbatches in the pipeline in a 1F1B manner.
         It consists of three stages: warmup, 1F1B, and cooldown.
@@ -620,7 +620,7 @@ class PipelineScheduler(BaseScheduler):
             output_obj = output_objs.pop(0)
             moe_loss = moe_losses.pop(0)
 
-            input_obj_grad = self._backward_step(engine, i, input_obj, output_obj, output_obj_grad, moe_loss, loss_weight)
+            input_obj_grad = self._backward_step(engine, i, input_obj, output_obj, output_obj_grad, moe_loss)
 
             if i == (num_1f1b_micropairs - 1):
                 input_obj = None
@@ -656,9 +656,7 @@ class PipelineScheduler(BaseScheduler):
                 output_obj_grad = None
 
             input_obj_grad = self._backward_step(
-                engine, num_1f1b_micropairs + i, input_obj, output_obj, output_obj_grad, moe_loss,
-                loss_weight = loss_weight
-            )
+                engine, num_1f1b_micropairs + i, input_obj, output_obj, output_obj_grad, moe_loss)
 
             if not gpc.is_first_rank(ParallelMode.PIPELINE):
                 comm.send_backward(input_obj_grad, scatter_gather_tensors=self.scatter_gather_tensors)
@@ -674,8 +672,7 @@ class PipelineScheduler(BaseScheduler):
         return output, label, accum_loss, accum_moe_loss
 
     @llm_timeout(func_name="nointerleaved_forward_backward_step")
-    def forward_backward_step(self, engine, data_iter, forward_only=False, return_loss=True, return_output_label=True,
-                              loss_weight: float = 1.0,):
+    def forward_backward_step(self, engine, data_iter, forward_only=False, return_loss=True, return_output_label=True):
         """Runs non-interleaved 1F1B schedule, with communication between pipeline stages.
         Returns a tuple with losses if the last stage, an empty tuple otherwise.
 
@@ -686,7 +683,6 @@ class PipelineScheduler(BaseScheduler):
                 Whether run forward step only. Default is false. If true, no backward will be run.
             return_loss (bool, optional): Whether returns the loss value. Default is true.
             return_output_label (bool, optional): If False, the output and label won't be returned.
-            loss_weight (float, optional): Loss will be scaled(loss*loss_weight) before backward.
         Returns:
             Tuple[:class:`torch.Tensor`]: A tuple of (output, label, loss, moe_loss), loss and label could be None.
                 The loss would be returned only in the last stage. And the moe_loss is accumulated from all stages.
@@ -705,7 +701,7 @@ class PipelineScheduler(BaseScheduler):
             )
         else:
             output, label, accum_loss, accum_moe_loss = self._forward_backward_step(
-                engine, return_loss, return_output_label, loss_weight = loss_weight
+                engine, return_loss, return_output_label
             )
 
         # Compatible for non-moe
