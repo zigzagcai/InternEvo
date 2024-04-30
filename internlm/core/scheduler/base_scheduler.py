@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, Iterable
 import torch
 
 from internlm.core.engine import Engine
-from internlm.apis.inference import InferenceParams
+from internlm.apis import InferenceParams
 
 class BaseScheduler(ABC):
     """A basic helper class to control the process of training or evaluation.

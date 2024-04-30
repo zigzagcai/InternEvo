@@ -7,47 +7,11 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from internlm.core.trainer import Trainer
+from internlm.apis import InferenceParams
+
 __all__ = ["SequenceGenerator"]
 
-
-class InferenceParams:
-    """
-    Intermediate cache objects for inference
-    """
-
-    def __init__(
-        self,
-        max_sequence_len,
-        max_batch_size,
-        sequence_len_offset=0,
-        batch_size_offset=0,
-        key_value_memory_dict: dict = None,
-        lengths_per_sample=None,
-        attention_mask=None,
-    ) -> None:
-
-        self.max_sequence_len: int = max_sequence_len
-        self.max_batch_size: int = max_batch_size
-        self.sequence_len_offset: int = sequence_len_offset
-        self.batch_size_offset: int = batch_size_offset
-        if key_value_memory_dict is None:
-            key_value_memory_dict = {}
-        self.key_value_memory_dict: dict = key_value_memory_dict
-        self.fused_ft_kernel: bool = False
-        self.lengths_per_sample = lengths_per_sample
-        self.attention_mask = attention_mask
-        self.total_attention_mask = attention_mask
-
-    def reorder_state(self, indices):
-        if self.lengths_per_sample is not None:
-            self.lengths_per_sample = self.lengths_per_sample.index_select(index=indices, dim=0)
-        for key, value in list(self.key_value_memory_dict.items()):
-            value = value.index_select(index=indices, dim=0)
-            self.key_value_memory_dict[key] = value
-
-    def set_batch_offset(self, offset, bsz):
-        self.batch_size_offset = offset
-        self.attention_mask = self.total_attention_mask[offset : offset + bsz]
 
 def _get_model_device(model):
     """
@@ -374,7 +338,15 @@ def _streaming_no_beam_search_generate(
             attention_mask=attention_mask,
         )
 
-    scores = decoder(**{"input_ids": tokens, "inference_params": inference_params})
+    if isinstance(decoder, torch.nn.Module):
+        scores = decoder(**{"input_ids": tokens, "inference_params": inference_params})
+    elif isinstance(decoder, Trainer):
+        data = {"input_ids": tokens, "inference_params": inference_params}
+        model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
+                                                      return_loss=False, return_output_label=True)
+        scores = torch.cat(model_output, dim=0)
+    else:
+        raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
     if isinstance(scores, (list, tuple)):
         scores = scores[0]
@@ -398,8 +370,19 @@ def _streaming_no_beam_search_generate(
         # batch_size x vocab_size
         attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
 
-        inference_params.attention_mask = attention_mask
-        scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
+        # inference_params.attention_mask = attention_mask
+        inference_params.set_attention_mask(attention_mask)
+
+        if isinstance(decoder, torch.nn.Module):
+            scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
+        elif isinstance(decoder, Trainer):
+            data = {"input_ids": token_ids[:, -1:], "inference_params": inference_params}
+            model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
+                                                        return_loss=False, return_output_label=True)
+            scores = torch.cat(model_output, dim=0)
+        else:
+            raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
+
 
         if isinstance(scores, (list, tuple)):
             scores = scores[0]
@@ -502,7 +485,16 @@ def _no_beam_search_generate(
             attention_mask=attention_mask,
         )
 
-    scores = decoder(**{"input_ids": tokens, "inference_params": inference_params})
+    if isinstance(decoder, torch.nn.Module):
+        scores = decoder(**{"input_ids": tokens, "inference_params": inference_params})
+    elif isinstance(decoder, Trainer):
+        data = {"input_ids": tokens, "inference_params": inference_params}
+        model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
+                                                      return_loss=False, return_output_label=True)
+        scores = torch.cat(model_output, dim=0)
+    else:
+        raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
+
 
     if isinstance(scores, (list, tuple)):
         scores = scores[0]
@@ -524,8 +516,18 @@ def _no_beam_search_generate(
         # batch_size x vocab_size
         attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
 
-        inference_params.attention_mask = attention_mask
-        scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
+        # inference_params.attention_mask = attention_mask
+        inference_params.set_attention_mask(attention_mask)
+
+        if isinstance(decoder, torch.nn.Module):
+            scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
+        elif isinstance(decoder, Trainer):
+            data = {"input_ids": token_ids[:, -1:], "inference_params": inference_params}
+            model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
+                                                        return_loss=False, return_output_label=True)
+            scores = torch.cat(model_output, dim=0)
+        else:
+            raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
         if isinstance(scores, (list, tuple)):
             scores = scores[0]
@@ -634,7 +636,15 @@ def _beam_search_generate(
             attention_mask=attention_mask,
         )
 
-    scores = decoder(**{"input_ids": tokens, "inference_params": inference_params})
+    if isinstance(decoder, torch.nn.Module):
+        scores = decoder(**{"input_ids": tokens, "inference_params": inference_params})
+    elif isinstance(decoder, Trainer):
+        data = {"input_ids": tokens, "inference_params": inference_params}
+        model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
+                                                      return_loss=False, return_output_label=True)
+        scores = torch.cat(model_output, dim=0)
+    else:
+        raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
     if isinstance(scores, (list, tuple)):
         scores = scores[0]
@@ -684,10 +694,19 @@ def _beam_search_generate(
         attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
 
 
-        inference_params.attention_mask = attention_mask
+        # inference_params.attention_mask = attention_mask
+        inference_params.set_attention_mask(attention_mask)
         # (bsz x num_beams, vocab_size)
 
-        scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
+        if isinstance(decoder, torch.nn.Module):
+            scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
+        elif isinstance(decoder, Trainer):
+            data = {"input_ids": token_ids[:, -1:], "inference_params": inference_params}
+            model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
+                                                        return_loss=False, return_output_label=True)
+            scores = torch.cat(model_output, dim=0)
+        else:
+            raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
         if isinstance(scores, (list, tuple)):
             scores = scores[0]
