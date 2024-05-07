@@ -9,6 +9,8 @@ from torch import nn
 
 from internlm.core.trainer import Trainer
 from internlm.apis import InferenceParams
+from internlm.core.context import ParallelMode  # noqa: E402
+from internlm.core.context import global_context as gpc  # noqa: E402
 
 __all__ = ["SequenceGenerator"]
 
@@ -491,23 +493,36 @@ def _no_beam_search_generate(
         data = {"input_ids": tokens, "inference_params": inference_params}
         model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
                                                       return_loss=False, return_output_label=True)
-        scores = torch.cat(model_output, dim=0)
+        if gpc.is_last_rank(ParallelMode.PIPELINE):
+            if not isinstance(model_output, torch.Tensor):
+                scores = torch.cat(model_output, dim=0)
+            else:
+                scores = model_output
+        else:
+            scores = None
     else:
         raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
+    if gpc.is_last_rank(ParallelMode.PIPELINE):
+        if isinstance(scores, (list, tuple)):
+            scores = scores[0]
+        scores = scores[:, -1].float()
+        if eos_token_id is not None:
+            scores[:, eos_token_id] = -1e12
 
-    if isinstance(scores, (list, tuple)):
-        scores = scores[0]
-    scores = scores[:, -1].float()
-    inference_params.sequence_len_offset += tokens.size(1)
-    if eos_token_id is not None:
-        scores[:, eos_token_id] = -1e12
-
-    # The first token generated.
-    next_tokens = scores.argmax(dim=-1, keepdim=True)
+        # The first token generated.
+        next_tokens = scores.argmax(dim=-1, keepdim=True)
+    else:
+        next_tokens = tokens.new_zeros([batch_size, 1])
+    if gpc.is_initialized(ParallelMode.PIPELINE):
+        # broadcast to other rank in PP group
+        torch.distributed.broadcast(next_tokens, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                                    group=gpc.get_group(ParallelMode.PIPELINE))
     token_ids = torch.cat([tokens, next_tokens], dim=1)
     cur_len = token_ids.size(1)
     dones = token_ids.new_zeros(batch_size).eq(1)
+
+    inference_params.sequence_len_offset += tokens.size(1)
 
     real_max_length = max_length
     max_lengths = tokens.new_full((tokens.size(0),), fill_value=max_length, dtype=torch.long)
@@ -525,43 +540,56 @@ def _no_beam_search_generate(
             data = {"input_ids": token_ids[:, -1:], "inference_params": inference_params}
             model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
                                                         return_loss=False, return_output_label=True)
-            scores = torch.cat(model_output, dim=0)
+            if gpc.is_last_rank(ParallelMode.PIPELINE):
+                if not isinstance(model_output, torch.Tensor):
+                    scores = torch.cat(model_output, dim=0)
+                else:
+                    scores = model_output
+            else:
+                scores = None
         else:
             raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
-        if isinstance(scores, (list, tuple)):
-            scores = scores[0]
-        scores = scores[:, -1].float()
         inference_params.sequence_len_offset += 1
+        if gpc.is_last_rank(ParallelMode.PIPELINE):
+            if isinstance(scores, (list, tuple)):
+                scores = scores[0]
+            scores = scores[:, -1].float()
 
-        if repetition_penalty != 1.0:
-            token_scores = scores.gather(dim=1, index=token_ids)
-            lt_zero_mask = token_scores.lt(0).float()
-            ge_zero_mask = lt_zero_mask.eq(0).float()
-            token_scores = (
-                lt_zero_mask * repetition_penalty * token_scores + ge_zero_mask / repetition_penalty * token_scores
-            )
-            scores.scatter_(dim=1, index=token_ids, src=token_scores)
-        # scores: [bsz, vocab_size]
-        if eos_token_id is not None and length_penalty != 1.0:
-            # batch_size x vocab_size
-            eos_token_scores = scores[:, eos_token_id].clone()
-            scores = scores / cur_len**length_penalty
-            scores[:, eos_token_id] = eos_token_scores
-            del eos_token_scores
+            if repetition_penalty != 1.0:
+                token_scores = scores.gather(dim=1, index=token_ids)
+                lt_zero_mask = token_scores.lt(0).float()
+                ge_zero_mask = lt_zero_mask.eq(0).float()
+                token_scores = (
+                    lt_zero_mask * repetition_penalty * token_scores + ge_zero_mask / repetition_penalty * token_scores
+                )
+                scores.scatter_(dim=1, index=token_ids, src=token_scores)
+            # scores: [bsz, vocab_size]
+            if eos_token_id is not None and length_penalty != 1.0:
+                # batch_size x vocab_size
+                eos_token_scores = scores[:, eos_token_id].clone()
+                scores = scores / cur_len**length_penalty
+                scores[:, eos_token_id] = eos_token_scores
+                del eos_token_scores
 
-        if do_sample:
-            if temperature > 0 and temperature != 1:
-                scores = scores / temperature
+            if do_sample:
+                if temperature > 0 and temperature != 1:
+                    scores = scores / temperature
 
-            scores = top_k_top_p_filtering(scores, top_k, top_p, min_tokens_to_keep=2)
-            # add 1e-12 to avoid https://github.com/pytorch/pytorch/pull/27523
-            probs = F.softmax(scores, dim=-1) + 1e-12
+                scores = top_k_top_p_filtering(scores, top_k, top_p, min_tokens_to_keep=2)
+                # add 1e-12 to avoid https://github.com/pytorch/pytorch/pull/27523
+                probs = F.softmax(scores, dim=-1) + 1e-12
 
-            next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)  # batch_size
+                next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)  # batch_size
+            else:
+                next_tokens = torch.argmax(scores, dim=-1)  # batch_size
         else:
-            next_tokens = torch.argmax(scores, dim=-1)  # batch_size
+            next_tokens = tokens.new_zeros(batch_size)
 
+        if gpc.is_initialized(ParallelMode.PIPELINE):
+            # broadcast to other rank in PP group
+            torch.distributed.broadcast(next_tokens, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                                        group=gpc.get_group(ParallelMode.PIPELINE))
         if eos_token_id is not None:
             # When the generated result exceeds the length, its eos_token_id is set to the most basic terminator.
             next_tokens = next_tokens.masked_fill(max_lengths.eq(cur_len + 1), eos_token_id[0])
@@ -609,7 +637,7 @@ def _beam_search_generate(
     bos_token_id=1,
 ) -> torch.LongTensor:
 
-    device = _get_model_device(decoder)
+    device = tokens.device
     batch_size = tokens.size(0)
 
     if eos_token_id is not None:
@@ -642,31 +670,52 @@ def _beam_search_generate(
         data = {"input_ids": tokens, "inference_params": inference_params}
         model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
                                                       return_loss=False, return_output_label=True)
-        scores = torch.cat(model_output, dim=0)
+        if gpc.is_last_rank(ParallelMode.PIPELINE):
+            if not isinstance(model_output, torch.Tensor):
+                scores = torch.cat(model_output, dim=0)
+            else:
+                scores = model_output
+        else:
+            scores = None
     else:
         raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
-    if isinstance(scores, (list, tuple)):
-        scores = scores[0]
-    scores = scores[:, -1].float()
     inference_params.sequence_len_offset += tokens.size(1)
-    if eos_token_id is not None:
-        scores[:, eos_token_id] = -1e12
-    vocab_size = scores.size(1)
-    assert vocab_size >= num_beams, "num_beams should be smaller than " "the number of vocabulary size."
 
-    # The first token generated.
-    if do_sample:
-        probs = F.softmax(scores, dim=-1) + 1e-12
-        # (batch_size, num_beams)
-        next_tokens = torch.multinomial(probs, num_samples=num_beams)
-        logits = probs.log()
-        # (batch_size, num_beams)
-        next_scores = logits.gather(dim=1, index=next_tokens)
+    if gpc.is_last_rank(ParallelMode.PIPELINE):
+        if isinstance(scores, (list, tuple)):
+            scores = scores[0]
+        scores = scores[:, -1].float()
+        if eos_token_id is not None:
+            scores[:, eos_token_id] = -1e12
+        vocab_size = scores.size(1)
+        assert vocab_size >= num_beams, "num_beams should be smaller than " "the number of vocabulary size."
+
+        # The first token generated.
+        if do_sample:
+            probs = F.softmax(scores, dim=-1) + 1e-12
+            # (batch_size, num_beams)
+            next_tokens = torch.multinomial(probs, num_samples=num_beams)
+            logits = probs.log()
+            # (batch_size, num_beams)
+            next_scores = logits.gather(dim=1, index=next_tokens)
+        else:
+            scores = F.log_softmax(scores, dim=-1)  # (batch_size, vocab_size)
+            # obtain (batch_size, num_beams), (batch_size, num_beams)
+            next_scores, next_tokens = torch.topk(scores, num_beams, dim=1, largest=True, sorted=True)
     else:
-        scores = F.log_softmax(scores, dim=-1)  # (batch_size, vocab_size)
-        # obtain (batch_size, num_beams), (batch_size, num_beams)
-        next_scores, next_tokens = torch.topk(scores, num_beams, dim=1, largest=True, sorted=True)
+        next_tokens = tokens.new_zeros([batch_size, num_beams])
+        next_scores = torch.zeros([batch_size, num_beams], dtype=torch.float32, device=next_tokens.device)
+
+    # import pdb;pdb.set_trace()
+    if gpc.is_initialized(ParallelMode.PIPELINE):
+        # broadcast to other rank in PP group
+        torch.distributed.broadcast(next_tokens, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                                    group=gpc.get_group(ParallelMode.PIPELINE))
+        torch.distributed.broadcast(next_scores, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                                    group=gpc.get_group(ParallelMode.PIPELINE))
+
+    # import pdb;pdb.set_trace()
 
     indices = torch.arange(batch_size, dtype=torch.long).to(device)
     indices = indices.repeat_interleave(num_beams)
@@ -704,64 +753,91 @@ def _beam_search_generate(
             data = {"input_ids": token_ids[:, -1:], "inference_params": inference_params}
             model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
                                                         return_loss=False, return_output_label=True)
-            scores = torch.cat(model_output, dim=0)
+            if gpc.is_last_rank(ParallelMode.PIPELINE):
+                if not isinstance(model_output, torch.Tensor):
+                    scores = torch.cat(model_output, dim=0)
+                else:
+                    scores = model_output
+            else:
+                scores = None
         else:
             raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
-        if isinstance(scores, (list, tuple)):
-            scores = scores[0]
-        scores = scores[:, -1].float()
+        # import pdb;pdb.set_trace()
+
         inference_params.sequence_len_offset += 1
-        if repetition_penalty != 1.0:
-            token_scores = scores.gather(dim=1, index=token_ids)
-            lt_zero_mask = token_scores.lt(0).float()
-            ge_zero_mask = lt_zero_mask.eq(0).float()
-            token_scores = (
-                lt_zero_mask * repetition_penalty * token_scores + ge_zero_mask / repetition_penalty * token_scores
-            )
-            scores.scatter_(dim=1, index=token_ids, src=token_scores)
 
-        if eos_token_id is not None:
-            max_len_eos_mask = max_lengths.eq(cur_len + 1)
-            # When the generated result exceeds the length, its eos_token_id is set to the most basic terminator.
-            eos_scores = scores[:, eos_token_id[0]]
-            scores[:, eos_token_id[0]] = torch.where(max_len_eos_mask, eos_scores + 1e32, eos_scores)
+        if gpc.is_last_rank(ParallelMode.PIPELINE):
 
-        if do_sample:
-            if temperature > 0 and temperature != 1:
-                scores = scores / temperature
+            if isinstance(scores, (list, tuple)):
+                scores = scores[0]
+            scores = scores[:, -1].float()
+            if repetition_penalty != 1.0:
+                token_scores = scores.gather(dim=1, index=token_ids)
+                lt_zero_mask = token_scores.lt(0).float()
+                ge_zero_mask = lt_zero_mask.eq(0).float()
+                token_scores = (
+                    lt_zero_mask * repetition_penalty * token_scores + ge_zero_mask / repetition_penalty * token_scores
+                )
+                scores.scatter_(dim=1, index=token_ids, src=token_scores)
 
-            scores = top_k_top_p_filtering(scores, top_k, top_p, min_tokens_to_keep=num_beams + 1)
-            # add 1e-12 to avoid https://github.com/pytorch/pytorch/pull/27523
-            probs = F.softmax(scores, dim=-1) + 1e-12
+            if eos_token_id is not None:
+                max_len_eos_mask = max_lengths.eq(cur_len + 1)
+                # When the generated result exceeds the length, its eos_token_id is set to the most basic terminator.
+                eos_scores = scores[:, eos_token_id[0]]
+                scores[:, eos_token_id[0]] = torch.where(max_len_eos_mask, eos_scores + 1e32, eos_scores)
 
-            # batch_size' x (num_beams+1)
-            _tokens = torch.multinomial(probs, num_samples=num_beams + 1)
+            if do_sample:
+                if temperature > 0 and temperature != 1:
+                    scores = scores / temperature
 
-            logits = probs.log()
-            # batch_size' x (num_beams+1)
-            _scores = logits.gather(dim=1, index=_tokens)
-            # batch_size' x (num_beams+1)
-            _scores = _scores + beam_scores[:, None]
-            _scores = _scores.view(batch_size, num_beams * (num_beams + 1))
-            next_scores, ids = _scores.topk(2 * num_beams, dim=1, largest=True, sorted=True)
-            _tokens = _tokens.view(batch_size, num_beams * (num_beams + 1))
-            # (batch_size, 2*num_beams)
-            next_tokens = _tokens.gather(dim=1, index=ids)
-            # (batch_size, 2*num_beams)
-            from_which_beam = torch.floor(ids.float() / (num_beams + 1)).long()
+                scores = top_k_top_p_filtering(scores, top_k, top_p, min_tokens_to_keep=num_beams + 1)
+                # add 1e-12 to avoid https://github.com/pytorch/pytorch/pull/27523
+                probs = F.softmax(scores, dim=-1) + 1e-12
+
+                # batch_size' x (num_beams+1)
+                _tokens = torch.multinomial(probs, num_samples=num_beams + 1)
+
+                logits = probs.log()
+                # batch_size' x (num_beams+1)
+                _scores = logits.gather(dim=1, index=_tokens)
+                # batch_size' x (num_beams+1)
+                _scores = _scores + beam_scores[:, None]
+                _scores = _scores.view(batch_size, num_beams * (num_beams + 1))
+                next_scores, ids = _scores.topk(2 * num_beams, dim=1, largest=True, sorted=True)
+                _tokens = _tokens.view(batch_size, num_beams * (num_beams + 1))
+                # (batch_size, 2*num_beams)
+                next_tokens = _tokens.gather(dim=1, index=ids)
+                # (batch_size, 2*num_beams)
+                from_which_beam = torch.floor(ids.float() / (num_beams + 1)).long()
+            else:
+                # (batch_size * num_beams, vocab_size)
+                scores = F.log_softmax(scores, dim=-1)
+                # (batch_size * num_beams, vocab_size)
+                _scores = scores + beam_scores[:, None]
+                # (batch_size, num_beams*vocab_size)
+                _scores = _scores.view(batch_size, -1)
+                # (bsz, 2*num_beams)
+                next_scores, ids = torch.topk(_scores, 2 * num_beams, dim=1, largest=True, sorted=True)
+                # (batch_size, 2*num_beams)
+                from_which_beam = torch.floor(ids.float() / vocab_size).long()
+                next_tokens = ids % vocab_size  # (batch_size, 2*num_beams)
         else:
-            # (batch_size * num_beams, vocab_size)
-            scores = F.log_softmax(scores, dim=-1)
-            # (batch_size * num_beams, vocab_size)
-            _scores = scores + beam_scores[:, None]
-            # (batch_size, num_beams*vocab_size)
-            _scores = _scores.view(batch_size, -1)
-            # (bsz, 2*num_beams)
-            next_scores, ids = torch.topk(_scores, 2 * num_beams, dim=1, largest=True, sorted=True)
-            # (batch_size, 2*num_beams)
-            from_which_beam = torch.floor(ids.float() / vocab_size).long()
-            next_tokens = ids % vocab_size  # (batch_size, 2*num_beams)
+            next_tokens = tokens.new_zeros([batch_size, 2 * num_beams])
+            next_scores = torch.zeros([batch_size, 2 * num_beams], dtype=torch.float32, device=next_tokens.device)
+            from_which_beam = torch.zeros([batch_size, 2 * num_beams], dtype=torch.int64, device=next_tokens.device)
+
+        # import pdb;pdb.set_trace()
+        if gpc.is_initialized(ParallelMode.PIPELINE):
+            # broadcast to other rank in PP group
+            torch.distributed.broadcast(next_tokens, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                                        group=gpc.get_group(ParallelMode.PIPELINE))
+            torch.distributed.broadcast(next_scores, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                                    group=gpc.get_group(ParallelMode.PIPELINE))
+            torch.distributed.broadcast(from_which_beam, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                                    group=gpc.get_group(ParallelMode.PIPELINE))
+
+        # import pdb;pdb.set_trace()
 
         not_eos_mask = torch.all(next_tokens[..., None].ne(eos_token_id), dim=-1)
         keep_mask = not_eos_mask.cumsum(dim=1).le(num_beams)
