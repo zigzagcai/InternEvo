@@ -1,1 +1,1 @@
-from .inference_utils import InferenceParams
+from .inference_utils import InferenceParams, process_parallel_output

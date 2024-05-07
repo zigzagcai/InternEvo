@@ -8,9 +8,10 @@ import torch.nn.functional as F
 from torch import nn
 
 from internlm.core.trainer import Trainer
-from internlm.apis import InferenceParams
+from internlm.apis import InferenceParams, process_parallel_output
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
+
 
 __all__ = ["SequenceGenerator"]
 
@@ -493,13 +494,7 @@ def _no_beam_search_generate(
         data = {"input_ids": tokens, "inference_params": inference_params}
         model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
                                                       return_loss=False, return_output_label=True)
-        if gpc.is_last_rank(ParallelMode.PIPELINE):
-            if not isinstance(model_output, torch.Tensor):
-                scores = torch.cat(model_output, dim=0)
-            else:
-                scores = model_output
-        else:
-            scores = None
+        scores = process_parallel_output(model_output)
     else:
         raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
@@ -540,13 +535,7 @@ def _no_beam_search_generate(
             data = {"input_ids": token_ids[:, -1:], "inference_params": inference_params}
             model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
                                                         return_loss=False, return_output_label=True)
-            if gpc.is_last_rank(ParallelMode.PIPELINE):
-                if not isinstance(model_output, torch.Tensor):
-                    scores = torch.cat(model_output, dim=0)
-                else:
-                    scores = model_output
-            else:
-                scores = None
+            scores = process_parallel_output(model_output)
         else:
             raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
@@ -670,13 +659,7 @@ def _beam_search_generate(
         data = {"input_ids": tokens, "inference_params": inference_params}
         model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
                                                       return_loss=False, return_output_label=True)
-        if gpc.is_last_rank(ParallelMode.PIPELINE):
-            if not isinstance(model_output, torch.Tensor):
-                scores = torch.cat(model_output, dim=0)
-            else:
-                scores = model_output
-        else:
-            scores = None
+        scores = process_parallel_output(model_output)
     else:
         raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
 
@@ -753,17 +736,9 @@ def _beam_search_generate(
             data = {"input_ids": token_ids[:, -1:], "inference_params": inference_params}
             model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
                                                         return_loss=False, return_output_label=True)
-            if gpc.is_last_rank(ParallelMode.PIPELINE):
-                if not isinstance(model_output, torch.Tensor):
-                    scores = torch.cat(model_output, dim=0)
-                else:
-                    scores = model_output
-            else:
-                scores = None
+            scores = process_parallel_output(model_output)
         else:
             raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
-
-        # import pdb;pdb.set_trace()
 
         inference_params.sequence_len_offset += 1
 

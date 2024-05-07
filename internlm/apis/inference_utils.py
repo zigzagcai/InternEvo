@@ -1,3 +1,9 @@
+import torch
+
+from internlm.core.context import ParallelMode  # noqa: E402
+from internlm.core.context import global_context as gpc  # noqa: E402
+from internlm.model.utils import _gather as gather
+
 class InferenceParams:
     """
     Intermediate cache objects for inference
@@ -46,13 +52,20 @@ class InferenceParams:
         self.full_attention_mask = mask
 
 
-    # @property
-    # def attention_mask(self):
-    #     return self.attention_mask
+def process_parallel_output(model_output):
+    # 1. concat
+    if gpc.is_last_rank(ParallelMode.PIPELINE):
+        if not isinstance(model_output, torch.Tensor):
+            model_output = torch.cat(model_output, dim=0)
+        else:
+            model_output = model_output
+    else:
+        return None
 
-    # @attention_mask.setter
-    # def attention_mask(self, mask):
-    #     """ handle user directly calling `inference_params.attention_mask = attention_mask`
-    #     """
-    #     import pdb;pdb.set_trace()
-    #     self.full_attention_mask = mask
+    # gather tp parallel output
+    if gpc.config.model.parallel_output and gpc.is_initialized(ParallelMode.TENSOR):
+        # gather output
+
+        model_output = gather(model_output,  ParallelMode.TENSOR, -1)
+
+    return model_output
