@@ -468,7 +468,7 @@ class PipelineScheduler(BaseScheduler):
 
         return output, label, accum_loss, accum_moe_loss
 
-    def _forward_backward_step(self, engine, return_loss=True, return_output_label=True,):
+    def _forward_backward_step(self, engine, return_loss=True, return_output_label=True):
         """
         This function schedules the forward and backward computation of microbatches in the pipeline in a 1F1B manner.
         It consists of three stages: warmup, 1F1B, and cooldown.
@@ -656,7 +656,8 @@ class PipelineScheduler(BaseScheduler):
                 output_obj_grad = None
 
             input_obj_grad = self._backward_step(
-                engine, num_1f1b_micropairs + i, input_obj, output_obj, output_obj_grad, moe_loss)
+                engine, num_1f1b_micropairs + i, input_obj, output_obj, output_obj_grad, moe_loss
+            )
 
             if not gpc.is_first_rank(ParallelMode.PIPELINE):
                 comm.send_backward(input_obj_grad, scatter_gather_tensors=self.scatter_gather_tensors)

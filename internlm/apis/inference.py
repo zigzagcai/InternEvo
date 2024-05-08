@@ -979,7 +979,6 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=1.0, filter_value=-float("Inf")
         logits[indices_to_remove] = filter_value
     return logits
 
-
 @torch.no_grad()
 def get_attention_mask(tokens, has_bos, bos_token_id=1):
     if has_bos:
@@ -1050,7 +1049,7 @@ def batch_tokenize_process_fn(
             )
             raise e
 
-def batchify_input_ids(batch: List[Dict], pad_token_id: int =0, return_dict:bool =False) -> Union[Dict, torch.Tensor]:
+def batchify_input_ids(batch: List[Dict], pad_token_id: int = 0, return_dict:bool = False) -> Union[Dict, torch.Tensor]:
     """ Tokenize a list of prompts with Left Padding.
 
     Args:
@@ -1077,9 +1076,22 @@ def batchify_input_ids(batch: List[Dict], pad_token_id: int =0, return_dict:bool
     input_ids = torch.stack(input_ids)
     return input_ids if not return_dict else {"input_ids": input_ids}
 
-def batch_tokenize(prompts: List[str], tokenizer):
+def batch_tokenize(prompts: List[str], tokenizer, return_dict:bool = False, pad_token_id: int = 0) -> Union[Dict, torch.Tensor]:
+    """ Tokenize a list of prompts with Left Padding. Return the tokens.
+
+    Args:
+        prompts (List[str]):  a list of prompts
+        tokenizer : Currently only sentencepiece is supported.
+        return_dict (bool, optional): Defaults to False.
+        pad_token_id (int, optional): Defaults to 0.
+
+    Returns:
+        Union[Dict, torch.Tensor]: input_ids or dict(input_ids=input_ids)
+    """
+
     tokenizer_out = batch_tokenize_process_fn(prompts, tokenizer)
 
-    tokens = batchify_input_ids(tokenizer_out, return_dict=False)
+    tokens = batchify_input_ids(tokenizer_out, return_dict=return_dict,
+                                pad_token_id=pad_token_id)
 
     return tokens

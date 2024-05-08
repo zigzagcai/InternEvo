@@ -123,7 +123,7 @@ class BaseScheduler(ABC):
         if isinstance(outputs, (tuple, list)) and isinstance(labels, (tuple, list)):
             return engine.criterion(*outputs, *labels)
         elif isinstance(outputs, (tuple, list)) and isinstance(labels, dict):
-            return engine.criterion(*outputs, labels)
+            return engine.criterion(*outputs, **labels)
         elif isinstance(outputs, dict) and isinstance(labels, dict):
             return engine.criterion(**outputs, **labels)
         elif isinstance(outputs, dict) and isinstance(labels, (list, tuple)):
