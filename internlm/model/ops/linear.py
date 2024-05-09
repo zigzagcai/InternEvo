@@ -179,13 +179,14 @@ class RewardModelLinear(BaseScaleColumnParallelLinear):
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
         weight_scale: int = 1,
+        **kwargs,
     ) -> None:
         super().__init__(in_features, out_features, process_group, bias, device, dtype, weight_scale)
         torch.distributed.broadcast(self.weight, gpc.get_ranks_in_group(ParallelMode.TENSOR)[0], process_group)
         if bias:
             torch.distributed.broadcast(self.bias, gpc.get_ranks_in_group(ParallelMode.TENSOR)[0], process_group)
 
-    def forward(self, input):  # pylint: disable=W0622
+    def forward(self, input, **kwargs):  # pylint: disable=W0622
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
