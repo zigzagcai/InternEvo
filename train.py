@@ -26,10 +26,10 @@ from internlm.monitor import initialize_monitor_manager, send_alert_message
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.train import (
     get_scheduler_hooks,
-    initialize_isp_communicator,
     initialize_llm_profile,
     initialize_model,
     initialize_optimizer,
+    initialize_parallel_communicator,
     load_new_batch,
     record_current_batch_training_metrics,
 )
@@ -87,7 +87,7 @@ def main(args):
     model = initialize_model()
 
     # initialize isp communicator
-    isp_communicator = initialize_isp_communicator(model)
+    isp_communicator = initialize_parallel_communicator(model)
 
     with open(args.config, "r") as f:
         config_lines = f.readlines()

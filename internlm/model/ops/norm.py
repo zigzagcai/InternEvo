@@ -6,8 +6,29 @@ import torch
 from torch.nn import init
 from torch.nn.parameter import Parameter
 
+from internlm.accelerator import AcceleratorType, get_accelerator
+from internlm.utils.logger import get_logger
 
-def manual_rms_norm(my_input, normalized_shape, weight, eps):
+logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
+
+try:
+    from apex.normalization.fused_layer_norm import mixed_dtype_fused_rms_norm_affine
+
+    apex_rmsnorm_impl = True
+except (ModuleNotFoundError, ImportError):
+    logger.warning("The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!")
+    apex_rmsnorm_impl = False
+
+try:
+    from deeplink_ext.internevo_ops import MixedFusedRMSNorm
+
+    deeplink_rmsnorm_impl = True
+except (ModuleNotFoundError, ImportError):
+    deeplink_rmsnorm_impl = False
+
+
+def manual_rms_norm(my_input, weight, normalized_shape, eps):
     # layer norm should always be calculated in float32
     dims = tuple(i for i in range(-1, -len(normalized_shape) - 1, -1))
     variance = my_input.to(torch.float32).pow(2).mean(dims, keepdim=True)
@@ -23,8 +44,8 @@ def manual_rms_norm(my_input, normalized_shape, weight, eps):
     return weight * my_input
 
 
-class RMSNormTorch(torch.nn.Module):
-    """A custom PyTorch module for RMS normalization."""
+class _RMSNorm(torch.nn.Module):
+    """A generic module for RMS normalization."""
 
     def __init__(self, normalized_shape, eps=1e-5):
         super().__init__()
@@ -37,10 +58,23 @@ class RMSNormTorch(torch.nn.Module):
         self.reset_parameters()
 
     def forward(self, _input: torch.Tensor):
-        return manual_rms_norm(_input, self.normalized_shape, self.weight, self.eps)
+        if apex_rmsnorm_impl:
+            _norm_func = mixed_dtype_fused_rms_norm_affine
+        else:
+            _norm_func = manual_rms_norm
+
+        return _norm_func(_input, self.weight, self.normalized_shape, self.eps)
 
     def reset_parameters(self):
         init.ones_(self.weight)
 
     def extra_repr(self):
-        return "{normalized_shape}, eps={eps}, ".format(**self.__dict__)
+        return f"{self.normalized_shape}, eps={self.eps}, "
+
+
+# TODO: Support deeplink in a more unified manner
+RMSNorm = (
+    MixedFusedRMSNorm
+    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.DIPU and deeplink_rmsnorm_impl
+    else _RMSNorm
+)
