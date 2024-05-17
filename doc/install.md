@@ -1,17 +1,43 @@
 ## 环境安装
-
 ### 环境准备
-首先，需要安装的依赖包及对应版本列表如下：
 - Python == 3.10
+- Ampere或者Hopper架构的GPU (例如H100, A100)
+- Linux OS
+
+### pip方式安装
+推荐使用 conda 构建一个 Python-3.10 的虚拟环境，命令如下：
+```bash
+conda create --name internevo-env python=3.10 -y
+conda activate internevo-env
+```
+
+首先，安装指定版本的torch, torchvision, torchaudio以及torch-scatter:
+```bash
+pip install --extra-index-url https://download.pytorch.org/whl/cu118 torch==2.1.0+cu118 torchvision==0.16.0+cu118 torchaudio==2.1.0+cu118
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.0+cu118.html
+```
+
+安装InternEvo:
+```bash
+pip install InternEvo
+```
+
+安装 flash-attention (version v2.2.1)：
+```bash
+pip install flash-attn==2.2.1
+```
+
+安装 Apex (version 23.05)：
+apex为非必须安装包，如果安装，参考下述源码方式安装。
+
+### 源码方式安装
+#### 依赖包
+首先，需要安装的依赖包及对应版本列表如下：
 - GCC == 10.2.0
 - MPFR == 4.1.0
 - CUDA >= 11.8
 - Pytorch >= 2.1.0
 - Transformers >= 4.28.0
-- Flash-Attention >= v2.2.1
-- Apex == 23.05
-- Ampere或者Hopper架构的GPU (例如H100, A100)
-- Linux OS
 
 以上依赖包安装完成后，需要更新配置系统环境变量：
 ```bash
@@ -24,15 +50,8 @@ export CC=${GCC_HOME}/bin/gcc
 export CXX=${GCC_HOME}/bin/c++
 ```
 
-### 环境安装
-可以通过pip命令直接安装，命令如下：
-```bash
-
-pip install InternEvo==xxx (xxx是需要安装的版本号信息)
-```
-这种方式仅安装了InternEvo项目，其依赖的软件包及子模块尚未安装。
-
-也可以通过源码安装，将项目`InternEvo`及其依赖子模块，从 github 仓库中 clone 下来，命令如下：
+#### 安装过程
+将项目`InternEvo`及其依赖子模块，从 github 仓库中 clone 下来，命令如下：
 ```bash
 git clone git@github.com:InternLM/InternEvo.git --recurse-submodules
 ```
@@ -51,10 +70,8 @@ pip install -r requirements/runtime.txt
 cd ./third_party/flash-attention
 python setup.py install
 cd ./csrc
-cd fused_dense_lib && pip install -v .
-cd ../xentropy && pip install -v .
+cd xentropy && pip install -v .
 cd ../rotary && pip install -v .
-cd ../layer_norm && pip install -v .
 cd ../../../../
 ```
 
