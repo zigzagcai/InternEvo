@@ -1,17 +1,16 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-from typing import List, Tuple, Dict, Union
+from typing import Dict, List, Tuple, Union
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
-from internlm.core.trainer import Trainer
 from internlm.apis import InferenceParams, process_parallel_output
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
-
+from internlm.core.trainer import Trainer
 
 __all__ = ["SequenceGenerator"]
 
@@ -345,8 +344,9 @@ def _streaming_no_beam_search_generate(
         scores = decoder(**{"input_ids": tokens, "inference_params": inference_params})
     elif isinstance(decoder, Trainer):
         data = {"input_ids": tokens, "inference_params": inference_params}
-        model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
-                                                      return_loss=False, return_output_label=True)
+        model_output, _, _ = decoder.execute_schedule(
+            (data, None), forward_only=True, return_loss=False, return_output_label=True
+        )
         scores = torch.cat(model_output, dim=0)
     else:
         raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
@@ -373,19 +373,18 @@ def _streaming_no_beam_search_generate(
         # batch_size x vocab_size
         attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
 
-        # inference_params.attention_mask = attention_mask
-        inference_params.set_attention_mask(attention_mask)
-
         if isinstance(decoder, torch.nn.Module):
+            inference_params.attention_mask = attention_mask
             scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
         elif isinstance(decoder, Trainer):
+            inference_params.set_attention_mask(attention_mask)
             data = {"input_ids": token_ids[:, -1:], "inference_params": inference_params}
-            model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
-                                                        return_loss=False, return_output_label=True)
+            model_output, _, _ = decoder.execute_schedule(
+                (data, None), forward_only=True, return_loss=False, return_output_label=True
+            )
             scores = torch.cat(model_output, dim=0)
         else:
             raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
-
 
         if isinstance(scores, (list, tuple)):
             scores = scores[0]
@@ -492,8 +491,9 @@ def _no_beam_search_generate(
         scores = decoder(**{"input_ids": tokens, "inference_params": inference_params})
     elif isinstance(decoder, Trainer):
         data = {"input_ids": tokens, "inference_params": inference_params}
-        model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
-                                                      return_loss=False, return_output_label=True)
+        model_output, _, _ = decoder.execute_schedule(
+            (data, None), forward_only=True, return_loss=False, return_output_label=True
+        )
         scores = process_parallel_output(model_output)
     else:
         raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
@@ -511,8 +511,11 @@ def _no_beam_search_generate(
         next_tokens = tokens.new_zeros([batch_size, 1])
     if gpc.is_initialized(ParallelMode.PIPELINE):
         # broadcast to other rank in PP group
-        torch.distributed.broadcast(next_tokens, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
-                                    group=gpc.get_group(ParallelMode.PIPELINE))
+        torch.distributed.broadcast(
+            next_tokens,
+            src=gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+            group=gpc.get_group(ParallelMode.PIPELINE),
+        )
     token_ids = torch.cat([tokens, next_tokens], dim=1)
     cur_len = token_ids.size(1)
     dones = token_ids.new_zeros(batch_size).eq(1)
@@ -526,15 +529,15 @@ def _no_beam_search_generate(
         # batch_size x vocab_size
         attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
 
-        # inference_params.attention_mask = attention_mask
-        inference_params.set_attention_mask(attention_mask)
-
         if isinstance(decoder, torch.nn.Module):
+            inference_params.attention_mask = attention_mask
             scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
         elif isinstance(decoder, Trainer):
+            inference_params.set_attention_mask(attention_mask)
             data = {"input_ids": token_ids[:, -1:], "inference_params": inference_params}
-            model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
-                                                        return_loss=False, return_output_label=True)
+            model_output, _, _ = decoder.execute_schedule(
+                (data, None), forward_only=True, return_loss=False, return_output_label=True
+            )
             scores = process_parallel_output(model_output)
         else:
             raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
@@ -577,8 +580,11 @@ def _no_beam_search_generate(
 
         if gpc.is_initialized(ParallelMode.PIPELINE):
             # broadcast to other rank in PP group
-            torch.distributed.broadcast(next_tokens, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
-                                        group=gpc.get_group(ParallelMode.PIPELINE))
+            torch.distributed.broadcast(
+                next_tokens,
+                src=gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                group=gpc.get_group(ParallelMode.PIPELINE),
+            )
         if eos_token_id is not None:
             # When the generated result exceeds the length, its eos_token_id is set to the most basic terminator.
             next_tokens = next_tokens.masked_fill(max_lengths.eq(cur_len + 1), eos_token_id[0])
@@ -657,8 +663,9 @@ def _beam_search_generate(
         scores = decoder(**{"input_ids": tokens, "inference_params": inference_params})
     elif isinstance(decoder, Trainer):
         data = {"input_ids": tokens, "inference_params": inference_params}
-        model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
-                                                      return_loss=False, return_output_label=True)
+        model_output, _, _ = decoder.execute_schedule(
+            (data, None), forward_only=True, return_loss=False, return_output_label=True
+        )
         scores = process_parallel_output(model_output)
     else:
         raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
@@ -693,10 +700,16 @@ def _beam_search_generate(
     # import pdb;pdb.set_trace()
     if gpc.is_initialized(ParallelMode.PIPELINE):
         # broadcast to other rank in PP group
-        torch.distributed.broadcast(next_tokens, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
-                                    group=gpc.get_group(ParallelMode.PIPELINE))
-        torch.distributed.broadcast(next_scores, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
-                                    group=gpc.get_group(ParallelMode.PIPELINE))
+        torch.distributed.broadcast(
+            next_tokens,
+            src=gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+            group=gpc.get_group(ParallelMode.PIPELINE),
+        )
+        torch.distributed.broadcast(
+            next_scores,
+            src=gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+            group=gpc.get_group(ParallelMode.PIPELINE),
+        )
 
     # import pdb;pdb.set_trace()
 
@@ -725,17 +738,17 @@ def _beam_search_generate(
     while cur_len < real_max_length:
         attention_mask = get_attention_mask(token_ids, has_bos, bos_token_id=bos_token_id)
 
-
-        # inference_params.attention_mask = attention_mask
-        inference_params.set_attention_mask(attention_mask)
         # (bsz x num_beams, vocab_size)
 
         if isinstance(decoder, torch.nn.Module):
+            inference_params.attention_mask = attention_mask
             scores = decoder(**{"input_ids": token_ids[:, -1:], "inference_params": inference_params})
         elif isinstance(decoder, Trainer):
+            inference_params.set_attention_mask(attention_mask)
             data = {"input_ids": token_ids[:, -1:], "inference_params": inference_params}
-            model_output, _, _ = decoder.execute_schedule((data, None), forward_only=True,
-                                                        return_loss=False, return_output_label=True)
+            model_output, _, _ = decoder.execute_schedule(
+                (data, None), forward_only=True, return_loss=False, return_output_label=True
+            )
             scores = process_parallel_output(model_output)
         else:
             raise NotImplementedError(f"Unsupported decoder type: {type(decoder)}")
@@ -805,12 +818,21 @@ def _beam_search_generate(
         # import pdb;pdb.set_trace()
         if gpc.is_initialized(ParallelMode.PIPELINE):
             # broadcast to other rank in PP group
-            torch.distributed.broadcast(next_tokens, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
-                                        group=gpc.get_group(ParallelMode.PIPELINE))
-            torch.distributed.broadcast(next_scores, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
-                                    group=gpc.get_group(ParallelMode.PIPELINE))
-            torch.distributed.broadcast(from_which_beam, src = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
-                                    group=gpc.get_group(ParallelMode.PIPELINE))
+            torch.distributed.broadcast(
+                next_tokens,
+                src=gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                group=gpc.get_group(ParallelMode.PIPELINE),
+            )
+            torch.distributed.broadcast(
+                next_scores,
+                src=gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                group=gpc.get_group(ParallelMode.PIPELINE),
+            )
+            torch.distributed.broadcast(
+                from_which_beam,
+                src=gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
+                group=gpc.get_group(ParallelMode.PIPELINE),
+            )
 
         # import pdb;pdb.set_trace()
 
@@ -979,6 +1001,7 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=1.0, filter_value=-float("Inf")
         logits[indices_to_remove] = filter_value
     return logits
 
+
 @torch.no_grad()
 def get_attention_mask(tokens, has_bos, bos_token_id=1):
     if has_bos:
@@ -997,6 +1020,7 @@ def get_attention_mask(tokens, has_bos, bos_token_id=1):
     attention_mask = torch.logical_or(to_atten_x_new, to_atten_y_new).eq(1)
 
     return attention_mask
+
 
 def batch_tokenize_process_fn(
     batch: Union[str, List[str], List[Dict], Dict], tokenizer, add_bos: bool = True, add_eos: bool = False
@@ -1044,13 +1068,12 @@ def batch_tokenize_process_fn(
             batch.pop("content")
             return batch
         except Exception as e:
-            print(
-                f"The type of parameter ``batch`` is wrong, type:{type(batch)}, batch: {batch}."
-            )
+            print(f"The type of parameter ``batch`` is wrong, type:{type(batch)}, batch: {batch}.")
             raise e
 
-def batchify_input_ids(batch: List[Dict], pad_token_id: int = 0, return_dict:bool = False) -> Union[Dict, torch.Tensor]:
-    """ Tokenize a list of prompts with Left Padding.
+
+def pad_input_ids(batch: List[Dict], pad_token_id: int = 0, return_dict: bool = False) -> Union[Dict, torch.Tensor]:
+    """Tokenize a list of prompts with Left Padding.
 
     Args:
         batch (List[Dict]):  a list of prompts
@@ -1076,14 +1099,17 @@ def batchify_input_ids(batch: List[Dict], pad_token_id: int = 0, return_dict:boo
     input_ids = torch.stack(input_ids)
     return input_ids if not return_dict else {"input_ids": input_ids}
 
-def batch_tokenize(prompts: List[str], tokenizer, return_dict:bool = False, pad_token_id: int = 0) -> Union[Dict, torch.Tensor]:
-    """ Tokenize a list of prompts with Left Padding. Return the tokens.
+
+def batch_tokenize(
+    prompts: List[str], tokenizer, return_dict: bool = False, pad_token_id: int = 1
+) -> Union[Dict, torch.Tensor]:
+    """Tokenize a list of prompts with Left Padding. Return the tokens.
 
     Args:
         prompts (List[str]):  a list of prompts
         tokenizer : Currently only sentencepiece is supported.
         return_dict (bool, optional): Defaults to False.
-        pad_token_id (int, optional): Defaults to 0.
+        pad_token_id (int, optional): Defaults to 1.
 
     Returns:
         Union[Dict, torch.Tensor]: input_ids or dict(input_ids=input_ids)
@@ -1091,7 +1117,6 @@ def batch_tokenize(prompts: List[str], tokenizer, return_dict:bool = False, pad_
 
     tokenizer_out = batch_tokenize_process_fn(prompts, tokenizer)
 
-    tokens = batchify_input_ids(tokenizer_out, return_dict=return_dict,
-                                pad_token_id=pad_token_id)
+    tokens = pad_input_ids(tokenizer_out, return_dict=return_dict, pad_token_id=pad_token_id)
 
     return tokens

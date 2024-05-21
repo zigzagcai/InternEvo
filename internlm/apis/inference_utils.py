@@ -4,6 +4,7 @@ from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
 from internlm.model.utils import _gather as gather
 
+
 class InferenceParams:
     """
     Intermediate cache objects for inference
@@ -29,7 +30,7 @@ class InferenceParams:
         self.key_value_memory_dict: dict = key_value_memory_dict
         self.fused_ft_kernel: bool = False
         self.lengths_per_sample = lengths_per_sample
-        # self.attention_mask = attention_mask
+        self.attention_mask = attention_mask
         self.full_attention_mask = attention_mask
 
     def reorder_state(self, indices):
@@ -40,15 +41,14 @@ class InferenceParams:
             self.key_value_memory_dict[key] = value
 
     def set_batch_offset(self, offset, bsz):
-        """ Called by `BaseScheduler._load_micro_batch`.
-            when micro-batch is enabled, the working attention mask is only a view of `full_attention_mask`
+        """Called by `BaseScheduler._load_micro_batch`.
+        when micro-batch is enabled, the working attention mask is only a view of `full_attention_mask`
         """
         self.batch_size_offset = offset
         self.attention_mask = self.full_attention_mask[offset : offset + bsz]
 
     def set_attention_mask(self, mask):
-        """ handle user directly calling `inference_params.attention_mask = attention_mask`
-        """
+        """useful when generate using Engine/trainer rather than directly using model"""
         self.full_attention_mask = mask
 
 
@@ -57,15 +57,11 @@ def process_parallel_output(model_output):
     if gpc.is_last_rank(ParallelMode.PIPELINE):
         if not isinstance(model_output, torch.Tensor):
             model_output = torch.cat(model_output, dim=0)
-        else:
-            model_output = model_output
     else:
         return None
 
     # gather tp parallel output
     if gpc.config.model.parallel_output and gpc.is_initialized(ParallelMode.TENSOR):
-        # gather output
-
-        model_output = gather(model_output,  ParallelMode.TENSOR, -1)
-
-    return model_output
+        return gather(model_output, ParallelMode.TENSOR, -1)
+    else:
+        return model_output
