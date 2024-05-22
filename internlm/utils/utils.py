@@ -62,14 +62,15 @@ def check_attention_argument(*args, **kwargs) -> str:
             # kv: [batch, seqlen, 3, n_head, headdim]
             return len(args[2].shape) == 5
 
-    def __cu_seqlens_checker(num_args: int, check_idx: int):
+    def __cu_seqlens_checker(args, check_idx: int):
+        num_args = len(args)
         if num_args < (check_idx + 1):
             if check_idx == 2:
                 return "cu_seqlens" in kwargs and kwargs["cu_seqlens"] is not None
             else:
                 return "cu_seqlens_q" in kwargs and kwargs["cu_seqlens_q"] is not None
         else:
-            return isinstance(num_args[check_idx], torch.Tensor)
+            return isinstance(args[check_idx], torch.Tensor)
 
     if __qkv_checker(len(args)):
         # qkv packed, and we should check cu_seqlens with index 2
@@ -81,7 +82,7 @@ def check_attention_argument(*args, **kwargs) -> str:
         # qkv splited, and we should check cu_seqlens with index 4
         qkv_pack_type = int(QKVPackType.QKVSPLITED)
 
-    with_cu_seqlens = __cu_seqlens_checker(len(args), qkv_pack_type)
+    with_cu_seqlens = __cu_seqlens_checker(args, qkv_pack_type)
 
     return str(qkv_pack_type), str(with_cu_seqlens)
 
