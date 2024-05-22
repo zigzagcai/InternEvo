@@ -2,7 +2,7 @@ import torch
 
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
-from internlm.model.utils import _gather as gather
+from internlm.core.parallel.comm.utils import _gather as gather
 
 
 class InferenceParams:

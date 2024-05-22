@@ -85,7 +85,8 @@ def pack_return_tensors(return_tensors):
             for k, v in d.items():
                 merged_label[k].append(v)
         label = {k: torch.cat(v, dim=0) for k, v in merged_label.items()}
-
+    else:
+        raise NotImplementedError(f"Unsupported label type: {type(label)}")
     return output, label
 
 

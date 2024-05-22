@@ -83,6 +83,7 @@ they lay on trash more easily. To prevent flies from entering the house, such as
     assert all_output_str[1][len(prompt[1]) :] == gt[1], all_output_str[1][len(prompt[1]) :]
 
 
+# @pytest.mark.skip()
 def test_internlm2_1_8B_generate():
     model_dir = "/mnt/hwfile/share_data/llm_model/ckpt/internlm2_1_8B"
     load_and_generate(model_dir, tokenizer_path="/mnt/hwfile/share_data/llm_model/tokenizer/v13.model")
