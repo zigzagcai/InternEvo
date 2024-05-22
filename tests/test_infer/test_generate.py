@@ -6,15 +6,15 @@ from sentencepiece import SentencePieceProcessor
 
 from internlm.apis.inference import SequenceGenerator, batch_tokenize
 from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.train import initialize_model,initialize_parallel_communicator
+from internlm.train import initialize_model, initialize_parallel_communicator
 
 
 def load_and_generate(path, model_type="INTERNLM2_PUBLIC", tokenizer_path=""):
     model_cfg = os.path.join(path, "model_config.pt")
     model_wt = os.path.join(path, "model_tp0_pp0.pt")
     model_config = torch.load(model_cfg)
-    model_config['apply_post_layer_norm']=False
-    model_config.pop('adapt_hf')
+    model_config["apply_post_layer_norm"] = False
+    model_config.pop("adapt_hf")
     evo_cfg = dict(
         model_type=model_type,
         model=model_config,
@@ -29,7 +29,7 @@ def load_and_generate(path, model_type="INTERNLM2_PUBLIC", tokenizer_path=""):
 
     tokenizer = SentencePieceProcessor(tokenizer_path)  # pylint: disable=E1121
     model = initialize_model()
-    isp_communicator = initialize_parallel_communicator(model)
+    _ = initialize_parallel_communicator(model)
     # Directly get the origin model without NativeAMP wrapper.
     model = model.model
 
@@ -74,13 +74,12 @@ def load_and_generate(path, model_type="INTERNLM2_PUBLIC", tokenizer_path=""):
             cur_sent = tokenizer.decode(cur_output_tokens)
             all_output_str.append(cur_sent)
     print(all_output_str)
-    breakpoint()
     gt = [
         "user\nHow can I keep flys away from my house\nassistant\nThere are several ways to keep flies away from your\
  house:\n\n1. Use citronella: Place citronella candles or essential oil in areas where flies likes to\
  congregate. This can be a temporary solution,",
         "Here are some tips to eliminate food sources, keep it's a lot of people eat. \nAlso, sprays with essential\
- oils like garlic or vinegar can help?\nTo Keep flies away:\nHere are some more tips"
+ oils like garlic or vinegar can help?\nTo Keep flies away:\nHere are some more tips",
     ]
     assert all_output_str[0] == gt[0], all_output_str[0]
     assert all_output_str[1][len(prompt[1]) :] == gt[1], all_output_str[1][len(prompt[1]) :]
@@ -90,9 +89,10 @@ def test_internlm2_1_8B_generate():
     base_model_dir = os.environ.get("qa_data")
     if base_model_dir is not None:
         model_dir = os.path.join(base_model_dir, "internlm2_1_8B")
-        tokenizer_path= os.path.join(base_model_dir,"InternLM_CI_assets/v13.model")
+        tokenizer_path = os.path.join(base_model_dir, "InternLM_CI_assets/v13.model")
         if os.path.exists(model_dir) and os.path.exists(tokenizer_path):
             load_and_generate(model_dir, tokenizer_path=tokenizer_path)
+
 
 if __name__ == "__main__":
     pytest.main(["-s", "-q", "-v", "test_generate.py"])
