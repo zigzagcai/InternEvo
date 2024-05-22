@@ -19,6 +19,7 @@ class InferenceParams:
         key_value_memory_dict: dict = None,
         lengths_per_sample=None,
         attention_mask=None,
+        window_size=None,
     ) -> None:
 
         self.max_sequence_len: int = max_sequence_len
@@ -32,6 +33,7 @@ class InferenceParams:
         self.lengths_per_sample = lengths_per_sample
         self.attention_mask = attention_mask
         self.full_attention_mask = attention_mask
+        self.window_size=window_size
 
     def reorder_state(self, indices):
         if self.lengths_per_sample is not None:
