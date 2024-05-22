@@ -1,7 +1,11 @@
 import torch
-import torch.distributed as dist
-from flash_attn.flash_attn_interface import _flash_attn_forward, _flash_attn_backward
-from .utils import RingComm, update_out_and_lse,ZigZagComm
+from flash_attn.flash_attn_interface import _flash_attn_backward, _flash_attn_forward
+
+from internlm.core.context.parallel_context import global_context as gpc
+
+from .utils import RingComm, update_out_and_lse
+
+fa_output_mapping = {}
 
 
 def zigzag_ring_flash_attn_forward(
@@ -16,7 +20,7 @@ def zigzag_ring_flash_attn_forward(
     alibi_slopes=None,
     deterministic=False,
 ):
-    assert causal == True, "zigzag ring is meaningless for causal=False"
+    assert causal is True, "zigzag ring is meaningless for causal=False"
     comm = RingComm(process_group)
 
     block_seq_len = q.shape[1] // 2
@@ -34,7 +38,6 @@ def zigzag_ring_flash_attn_forward(
             dropout_p,
             softmax_scale,
             causal=causal,
-        
             return_softmax=True and dropout_p > 0,
         )
         return block_out, block_lse
@@ -89,7 +92,7 @@ def zigzag_ring_flash_attn_backward(
     alibi_slopes=None,
     deterministic=False,
 ):
-    assert causal == True, "zigzag ring is meaningless for causal=False"
+    assert causal is True, "zigzag ring is meaningless for causal=False"
     kv_comm = RingComm(process_group)
     d_kv_comm = RingComm(process_group)
     dq, dk, dv = None, None, None
@@ -109,7 +112,7 @@ def zigzag_ring_flash_attn_backward(
     dv_buffer = torch.empty(v.shape, dtype=v.dtype, device=v.device)
 
     def backward(dout, q, k, v, out, softmax_lse, causal):
-       
+
         seqlen_q = q.shape[1]
         seqlen_kv = k.shape[1]
         _flash_attn_backward(
@@ -189,6 +192,7 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
         deterministic,
         return_softmax,
         group,
+        layer_idx,
     ):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
@@ -196,15 +200,23 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
         assert alibi_slopes is None
         k = k.contiguous()
         v = v.contiguous()
-        out, softmax_lse = zigzag_ring_flash_attn_forward(
-            group,
-            q,
-            k,
-            v,
-            softmax_scale=softmax_scale,
-            dropout_p=dropout_p,
-            causal=causal
-        )
+
+        if gpc.is_forward is False and gpc.config.selective_checkpoint:
+            assert layer_idx in fa_output_mapping
+            out, softmax_lse = fa_output_mapping[layer_idx]
+            # if gpc.get_global_rank() == 0:
+            #     print(f"ht debug get fa output with id:{layer_idx}", flush=True)
+        else:
+            out, softmax_lse = zigzag_ring_flash_attn_forward(
+                group, q, k, v, softmax_scale=softmax_scale, dropout_p=dropout_p, causal=causal
+            )
+
+        # store attn forward output to avoid re-computation of attn when activation checkpoint is enabled
+        if gpc.is_forward and gpc.config.selective_checkpoint:
+            fa_output_mapping[layer_idx] = (out, softmax_lse)
+            # if gpc.get_global_rank() == 0:
+            #     print(f"ht debug store fa output with id:{layer_idx}", flush=True)
+
         # this should be out_padded
         ctx.save_for_backward(q, k, v, out, softmax_lse)
         ctx.dropout_p = dropout_p
@@ -234,7 +246,7 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
             alibi_slopes=ctx.alibi_slopes,
             deterministic=ctx.deterministic,
         )
-        return dq, dk, dv, None, None, None, None, None, None, None, None
+        return dq, dk, dv, None, None, None, None, None, None, None, None, None
 
 
 def zigzag_ring_flash_attn_qkvpacked_func(
@@ -274,6 +286,7 @@ def zigzag_ring_flash_attn_kvpacked_func(
     deterministic=False,
     return_attn_probs=False,
     group=None,
+    layer_idx=0,
 ):
     return ZigZagRingFlashAttnFunc.apply(
         q,
@@ -287,6 +300,7 @@ def zigzag_ring_flash_attn_kvpacked_func(
         deterministic,
         return_attn_probs,
         group,
+        layer_idx,
     )
 
 

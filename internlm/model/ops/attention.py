@@ -762,11 +762,12 @@ class SelfAttention(nn.Module):
         attention_dropout (float): Dropout rate for attention scores. Defaults to 0.0.
     """
 
-    def __init__(self, causal=False, softmax_scale=None, attention_dropout=0.0):
+    def __init__(self, causal=False, softmax_scale=None, attention_dropout=0.0, layer_idx=0):
         super().__init__()
         self.causal = causal
         self.softmax_scale = softmax_scale
         self.dropout = nn.Dropout(attention_dropout)
+        self.layer_idx = layer_idx
 
         if device_backend == AcceleratorType.NPU:
             assert self.causal, "Ascend flash attention does not spport causal=False yet!"
@@ -910,11 +911,12 @@ class CrossAttention(nn.Module):
             support non-causal attention yet.
     """
 
-    def __init__(self, causal=False, softmax_scale=None, attention_dropout=0.0):
+    def __init__(self, causal=False, softmax_scale=None, attention_dropout=0.0, layer_idx=0):
         super().__init__()
         self.causal = causal
         self.softmax_scale = softmax_scale
         self.dropout = nn.Dropout(attention_dropout)
+        self.layer_idx = layer_idx
 
         if device_backend == AcceleratorType.NPU:
             assert self.causal, "Ascend flash attention does not support causal=False yet!"
