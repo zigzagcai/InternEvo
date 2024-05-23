@@ -33,7 +33,7 @@ class InferenceParams:
         self.lengths_per_sample = lengths_per_sample
         self.attention_mask = attention_mask
         self.full_attention_mask = attention_mask
-        self.window_size=window_size
+        self.window_size = window_size
 
     def reorder_state(self, indices):
         if self.lengths_per_sample is not None:

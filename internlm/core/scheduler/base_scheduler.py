@@ -54,6 +54,8 @@ class BaseScheduler(ABC):
             elif isinstance(v, InferenceParams):
                 v.set_batch_offset(offset, bsz_stride)
                 micro_batch_data[k] = v
+            elif isinstance(v, (list, tuple)):
+                micro_batch_data[k] = v[offset : offset + bsz_stride]
             else:
                 raise NotImplementedError(f"value of type {type(v)} is not supported")
 
