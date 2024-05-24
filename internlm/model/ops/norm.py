@@ -27,6 +27,13 @@ try:
 except (ModuleNotFoundError, ImportError):
     deeplink_rmsnorm_impl = False
 
+try:
+    from torch_npu import npu_rms_norm
+
+    torchnpu_rmsnorm_impl = True
+except (ModuleNotFoundError, ImportError):
+    torchnpu_rmsnorm_impl = False
+
 
 def manual_rms_norm(my_input, weight, normalized_shape, eps):
     # layer norm should always be calculated in float32
@@ -72,9 +79,38 @@ class _RMSNorm(torch.nn.Module):
         return f"{self.normalized_shape}, eps={self.eps}, "
 
 
+class _RMSNormNPU(torch.nn.Module):
+    """A custom NPU module for RMS normalization."""
+
+    def __init__(self, normalized_shape, eps=1e-5):
+        super().__init__()
+
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = torch.Size(normalized_shape)
+        self.eps = eps
+        self.weight = Parameter(torch.empty(*normalized_shape))
+        self.reset_parameters()
+        self.rmsorm_npu_forward = npu_rms_norm
+
+    def forward(self, _input: torch.Tensor):
+        weight_fp32 = self.weight.to(torch.float32)
+        input_fp32 = _input.to(torch.float32)
+        output = self.rmsorm_npu_forward(input_fp32, gamma=weight_fp32, epsilon=self.eps)[0].to(self.weight.dtype)
+        return output
+
+    def reset_parameters(self):
+        init.ones_(self.weight)
+
+    def extra_repr(self):
+        return f"{self.normalized_shape}, eps={self.eps}, ".format(**self.__dict__)
+
+
 # TODO: Support deeplink in a more unified manner
-RMSNorm = (
-    MixedFusedRMSNorm
-    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.DIPU and deeplink_rmsnorm_impl
-    else _RMSNorm
-)
+backend = internlm_accelerator.get_accelerator_backend()
+if backend == AcceleratorType.DIPU and deeplink_rmsnorm_impl:
+    RMSNorm = MixedFusedRMSNorm
+elif backend == AcceleratorType.NPU and torchnpu_rmsnorm_impl:
+    RMSNorm = _RMSNormNPU
+else:
+    RMSNorm = _RMSNorm
