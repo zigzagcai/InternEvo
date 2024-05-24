@@ -233,7 +233,7 @@ class HeadTensorParallelCommunicator(TensorParallelCommunicator):
         if self._retain_out_sharded or dist.get_world_size(self._process_group) <= 1:
             return grad_output, DUMMY_HANDLE_CONST
 
-        return _split(grad_output, parallel_mode=self._parallel_mode, dim=-1)
+        return _split(grad_output, parallel_mode=self._parallel_mode, dim=-1), DUMMY_HANDLE_CONST
 
     def output_hook(
         self, output: torch.Tensor, async_op: bool = False  # pylint: disable=W0613
@@ -244,7 +244,7 @@ class HeadTensorParallelCommunicator(TensorParallelCommunicator):
         if self._retain_out_sharded or dist.get_world_size(self._process_group) <= 1:
             return output, DUMMY_HANDLE_CONST
 
-        return _gather(output, parallel_mode=self._parallel_mode, dim=-1)
+        return _gather(output, parallel_mode=self._parallel_mode, dim=-1), DUMMY_HANDLE_CONST
 
 
 class HeadSequenceParallelCommunicator(SequenceParallelCommunicator):
@@ -274,7 +274,7 @@ class HeadSequenceParallelCommunicator(SequenceParallelCommunicator):
         if self._retain_out_sharded or dist.get_world_size(self._process_group) <= 1:
             return grad_output, DUMMY_HANDLE_CONST
 
-        return _split(grad_output, parallel_mode=self._parallel_mode, dim=-1)
+        return _split(grad_output, parallel_mode=self._parallel_mode, dim=-1), DUMMY_HANDLE_CONST
 
     # rewrite ouput communication hook
     def output_hook(
@@ -286,7 +286,7 @@ class HeadSequenceParallelCommunicator(SequenceParallelCommunicator):
         if self._retain_out_sharded or dist.get_world_size(self._process_group) <= 1:
             return output, DUMMY_HANDLE_CONST
 
-        return _gather(output, parallel_mode=self._parallel_mode, dim=-1)
+        return _gather(output, parallel_mode=self._parallel_mode, dim=-1), DUMMY_HANDLE_CONST
 
 
 class MoESequenceParallelCommunicator:

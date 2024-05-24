@@ -492,7 +492,7 @@ class ScaleColumnParallelLinear(ParallelLinearWithCommExt):
 
         return fused_dense_func(
             input,
-            self.weight,
+            weight,
             communicator=self._communicator,
             module=self,
             bias=self.bias,

@@ -184,9 +184,13 @@ class MHA(nn.Module):
         max_seqlen_q = attention_mask.shape[-1]
         max_seqlen_k = attention_mask.shape[-1]
 
-        q_packed = q.masked_select(attention_mask.view(batch_size, -1, 1, 1)).view(-1, q.shape[-2], q.shape[-1])
-        kv_packed = kv.masked_select(attention_mask.view(batch_size, -1, 1, 1, 1)).view(
-            -1, kv.shape[-3], kv.shape[-2], kv.shape[-1]
+        q_packed = (
+            q.masked_select(attention_mask.view(batch_size, -1, 1, 1)).view(-1, q.shape[-2], q.shape[-1]).unsqueeze(0)
+        )
+        kv_packed = (
+            kv.masked_select(attention_mask.view(batch_size, -1, 1, 1, 1))
+            .view(-1, kv.shape[-3], kv.shape[-2], kv.shape[-1])
+            .unsqueeze(0)
         )
 
         return q_packed, kv_packed, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k
@@ -194,8 +198,8 @@ class MHA(nn.Module):
     def _inference(self, x, inference_params, **kwargs):  # pylint: disable=W0613
         assert inference_params is not None, "inference_params is required for inference"
         assert self.layer_idx is not None, "Generation requires layer_idx in the constructor"
-        attention_mask = inference_params.get("attention_mask", None)
-        sequence_len_offset = inference_params.get("sequence_len_offset", 0)
+        attention_mask = inference_params.attention_mask
+        sequence_len_offset = inference_params.sequence_len_offset
         batch_size = x.shape[0]
 
         # wqkv, output: q, kv
@@ -230,21 +234,21 @@ class MHA(nn.Module):
                     q = self.rotary_emb(
                         q, offsets=sequence_len_offset, cache_type="query", interleaved=self.interleaved
                     )
-                    k = kv[:, :, 0].squeueze(2)
+                    k = kv[:, :, 0].squeeze(2)
                     self.rotary_emb(
                         k, offsets=0, cache_type="key", interleaved=self.interleaved, in_place=True
                     )  # in-place is important
             else:
                 if self.rotary_emb_dim > 0:
                     q = self.rotary_emb(q, offsets=0, cache_type="query", interleaved=self.interleaved)
-                    k = kv[:, :, 0].squeueze(2)
+                    k = kv[:, :, 0].squeeze(2)
                     self.rotary_emb(
                         k, offsets=0, cache_type="key", interleaved=self.interleaved, in_place=True
                     )  # in-place is important
         else:
             assert self.rotary_emb_dim > 0, "You should use rotary_emb."
 
-            k, v = kv[:, :, 0].squeueze(2), kv[:, :, 1].squeueze(2)
+            k, v = kv[:, :, 0].squeeze(2), kv[:, :, 1].squeeze(2)
 
             if attention_mask is None:
                 q = self.rotary_emb(q, offsets=sequence_len_offset, cache_type="query", interleaved=self.interleaved)
@@ -474,9 +478,13 @@ class GQA(nn.Module):
         max_seqlen_q = attention_mask.shape[-1]
         max_seqlen_k = attention_mask.shape[-1]
 
-        q_packed = q.masked_select(attention_mask.view(batch_size, -1, 1, 1)).view(-1, q.shape[-2], q.shape[-1])
-        kv_packed = kv.masked_select(attention_mask.view(batch_size, -1, 1, 1, 1)).view(
-            -1, kv.shape[-3], kv.shape[-2], kv.shape[-1]
+        q_packed = (
+            q.masked_select(attention_mask.view(batch_size, -1, 1, 1)).view(-1, q.shape[-2], q.shape[-1]).unsqueeze(0)
+        )
+        kv_packed = (
+            kv.masked_select(attention_mask.view(batch_size, -1, 1, 1, 1))
+            .view(-1, kv.shape[-3], kv.shape[-2], kv.shape[-1])
+            .unsqueeze(0)
         )
 
         return q_packed, kv_packed, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k
@@ -484,9 +492,9 @@ class GQA(nn.Module):
     def _inference(self, x, inference_params, **kwargs):  # pylint: disable=W0613
         assert inference_params is not None, "inference_params is required for inference"
         assert self.layer_idx is not None, "Generation requires layer_idx in the constructor"
-        attention_mask = inference_params.get("attention_mask", None)
-        sequence_len_offset = inference_params.get("sequence_len_offset", 0)
-        window_size = inference_params.get("window_size", None)
+        attention_mask = inference_params.attention_mask
+        sequence_len_offset = inference_params.sequence_len_offset
+        window_size = inference_params.window_size
 
         batch_size = x.shape[0]
 
@@ -494,7 +502,7 @@ class GQA(nn.Module):
         if self.enable_qkv_fusion:
             qkv = self.wqkv(x)
             qkv = rearrange(qkv, "b s (h gs d) -> b s h gs d", gs=self.q_per_kv + 2, d=self.head_dim)
-            q, k, v = (qkv[..., : self.q_per_kv, :], qkv[..., -2, :].unsqueeze(-2), qkv[..., -1, :].unsqueeze(-2))
+            q, k, v = (qkv[..., : self.q_per_kv, :], qkv[..., -2, :], qkv[..., -1, :])
             q = rearrange(q, "b s h gs d -> b s (h gs) d")
         else:
             q, k, v = self.wq(x), self.wk(x), self.wv(x)
