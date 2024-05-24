@@ -184,10 +184,14 @@ class MHA(nn.Module):
         max_seqlen_q = attention_mask.shape[-1]
         max_seqlen_k = attention_mask.shape[-1]
 
-        q_packed = q.masked_select(attention_mask.view(batch_size, -1, 1, 1)).view(-1, q.shape[-2], q.shape[-1]).unsqueeze(0)
-        kv_packed = kv.masked_select(attention_mask.view(batch_size, -1, 1, 1, 1)).view(
-            -1, kv.shape[-3], kv.shape[-2], kv.shape[-1]
-        ).unsqueeze(0)
+        q_packed = (
+            q.masked_select(attention_mask.view(batch_size, -1, 1, 1)).view(-1, q.shape[-2], q.shape[-1]).unsqueeze(0)
+        )
+        kv_packed = (
+            kv.masked_select(attention_mask.view(batch_size, -1, 1, 1, 1))
+            .view(-1, kv.shape[-3], kv.shape[-2], kv.shape[-1])
+            .unsqueeze(0)
+        )
 
         return q_packed, kv_packed, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k
 
@@ -474,10 +478,14 @@ class GQA(nn.Module):
         max_seqlen_q = attention_mask.shape[-1]
         max_seqlen_k = attention_mask.shape[-1]
 
-        q_packed = q.masked_select(attention_mask.view(batch_size, -1, 1, 1)).view(-1, q.shape[-2], q.shape[-1]).unsqueeze(0)
-        kv_packed = kv.masked_select(attention_mask.view(batch_size, -1, 1, 1, 1)).view(
-            -1, kv.shape[-3], kv.shape[-2], kv.shape[-1]
-        ).unsqueeze(0)
+        q_packed = (
+            q.masked_select(attention_mask.view(batch_size, -1, 1, 1)).view(-1, q.shape[-2], q.shape[-1]).unsqueeze(0)
+        )
+        kv_packed = (
+            kv.masked_select(attention_mask.view(batch_size, -1, 1, 1, 1))
+            .view(-1, kv.shape[-3], kv.shape[-2], kv.shape[-1])
+            .unsqueeze(0)
+        )
 
         return q_packed, kv_packed, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k
 
