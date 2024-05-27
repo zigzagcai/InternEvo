@@ -79,7 +79,7 @@ def load_and_generate(path, model_type="INTERNLM2_PUBLIC", tokenizer_path=""):
  house:\n\n1. Use citronella: Place citronella candles or essential oil in areas where flies likes to\
  congregate. This can be a temporary solution,",
         "Here are some tips to eliminate food sources, keep it's a lot of people eat. \nAlso, sprays with essential\
- oils like garlic or vinegar can help?\nTo Keep flies away:\nHere are some more tips",
+ oils like garlic or vinegar. You can also put some sticky traps are also a very effective",
     ]
     assert all_output_str[0] == gt[0], all_output_str[0]
     assert all_output_str[1][len(prompt[1]) :] == gt[1], all_output_str[1][len(prompt[1]) :]
