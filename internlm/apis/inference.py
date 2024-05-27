@@ -697,7 +697,6 @@ def _beam_search_generate(
         next_tokens = tokens.new_zeros([batch_size, num_beams])
         next_scores = torch.zeros([batch_size, num_beams], dtype=torch.float32, device=next_tokens.device)
 
-    # import pdb;pdb.set_trace()
     if gpc.is_initialized(ParallelMode.PIPELINE):
         # broadcast to other rank in PP group
         torch.distributed.broadcast(
@@ -710,8 +709,6 @@ def _beam_search_generate(
             src=gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
             group=gpc.get_group(ParallelMode.PIPELINE),
         )
-
-    # import pdb;pdb.set_trace()
 
     indices = torch.arange(batch_size, dtype=torch.long).to(device)
     indices = indices.repeat_interleave(num_beams)
@@ -815,7 +812,6 @@ def _beam_search_generate(
             next_scores = torch.zeros([batch_size, 2 * num_beams], dtype=torch.float32, device=next_tokens.device)
             from_which_beam = torch.zeros([batch_size, 2 * num_beams], dtype=torch.int64, device=next_tokens.device)
 
-        # import pdb;pdb.set_trace()
         if gpc.is_initialized(ParallelMode.PIPELINE):
             # broadcast to other rank in PP group
             torch.distributed.broadcast(
@@ -833,8 +829,6 @@ def _beam_search_generate(
                 src=gpc.get_ranks_in_group(ParallelMode.PIPELINE)[-1],
                 group=gpc.get_group(ParallelMode.PIPELINE),
             )
-
-        # import pdb;pdb.set_trace()
 
         not_eos_mask = torch.all(next_tokens[..., None].ne(eos_token_id), dim=-1)
         keep_mask = not_eos_mask.cumsum(dim=1).le(num_beams)
@@ -1023,19 +1017,18 @@ def get_attention_mask(tokens, has_bos, bos_token_id=1):
 
 
 def batch_tokenize_process_fn(
-    batch: Union[str, List[str], List[Dict], Dict], tokenizer, add_bos: bool = True, add_eos: bool = False
+    batch: Union[List[str], List[Dict], Dict], tokenizer, add_bos: bool = True, add_eos: bool = False
 ) -> Union[List, Dict]:
     """Data post-processing function for tokenize.
 
     This function can be directly used in the map function of ``DatasetDict`` and supports batched=True.
 
     Args:
-        batch (Union[str, List[str], List[Dict], Dict]): Data used to tokenize which can be of the following
+        batch (Union[List[str], List[Dict], Dict]): Data used to tokenize which can be of the following
          categories:
-            (a) A string;
-            (b) A list whose content can be a string or a dictionary. If it is a dictionary,
+            (a) A list whose content can be a string or a dictionary. If it is a dictionary,
                 it needs to contain the "content" field;
-            (c) A dictionary-like object, which should contain the "content" field.
+            (b) A dictionary-like object, which should contain the "content" field.
         tokenizer : Currently only sentencepiece is supported.
         add_bos (bool, optional): Whether to add bos token. Defaults to True.
         add_eos (bool, optional): Whether to add eos token. Defaults to False.
@@ -1051,9 +1044,7 @@ def batch_tokenize_process_fn(
             tokens.append(tokenizer.eos_id())
         return tokens
 
-    if isinstance(batch, str):
-        return _tokenize(batch)
-    elif isinstance(batch, (List, Tuple)):
+    if isinstance(batch, (List, Tuple)):
         if len(batch) == 0:
             return None
         if isinstance(batch[0], str):
@@ -1062,6 +1053,8 @@ def batch_tokenize_process_fn(
             for sample in batch:
                 sample["input_ids"] = _tokenize(sample["content"])
             return batch
+    elif isinstance(batch, str):
+        raise NotImplementedError("Do not support a single str as input.")
     else:
         try:
             batch["input_ids"] = [_tokenize(w) for w in batch["content"]]
@@ -1076,18 +1069,24 @@ def pad_input_ids(batch: List[Dict], pad_token_id: int = 0, return_dict: bool = 
     """Tokenize a list of prompts with Left Padding.
 
     Args:
-        batch (List[Dict]):  a list of prompts
+        batch (List[Dict, List]): if batch[0] is a dict, then key 'input_ids' must exist,
+            and value must be a list of integers.
         pad_token_id (int, optional): Defaults to 0.
         return_dict (bool, optional): Defaults to False.
 
     Returns:
         Union[Dict, torch.Tensor]: input_ids or dict(input_ids=input_ids)
     """
+    assert isinstance(batch, list), "batch must be a list"
+
     input_ids = []
     max_length = max([len(w["input_ids"] if isinstance(w, Dict) else w) for w in batch])
     for sample in batch:
-        cur_input_ids = torch.LongTensor(sample["input_ids"] if isinstance(sample, Dict) else sample)
-        # left padding for generation;
+        cur_input_ids = sample["input_ids"] if isinstance(sample, Dict) else sample
+        assert len(cur_input_ids) > 0, "got empty list"
+        assert isinstance(cur_input_ids[0], int), f"only support a list of integers, but got {type(cur_input_ids[0])}"
+        cur_input_ids = torch.LongTensor(cur_input_ids)
+        # left padding for generation
         input_ids.append(
             torch.cat(
                 [
