@@ -461,6 +461,10 @@ def args_sanity_check():
             -1,
             gpc.get_world_size(ParallelMode.DATA),
         ), "moe only support zero1, set zero1=dict(size=-1,...) can fix this"
+    
+    # ring attention head overlap
+    if  "ring_attn_head_overlap" not in gpc.config:
+        gpc.config._add_item("ring_attn_head_overlap", {'enable': False, 'head_chunks':1})
 
 
 def launch(

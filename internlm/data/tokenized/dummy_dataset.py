@@ -30,7 +30,6 @@ class RandomDataset(Dataset):
                 while len(d) < max_len:
                     r *= 2
                     d = list(range(n)) * r
-
             r = r % gpc.config.VOCAB_SIZE
             d = [n, r] + d
             d = d[:max_len]

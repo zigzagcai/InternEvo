@@ -13,8 +13,13 @@ NUM_LAYER = 2
 
 uly_sp=1
 ring_sp=8
-use_ring_attn="zigzag"  # none, basic, zigzag, full_kv_zigzag
+use_ring_attn="full_kv_zigzag"  # none, basic, zigzag, full_kv_zigzag
 full_kv_zigzag_with_full_dkv=True
+ring_attn_head_overlap=dict(
+    enable=True,
+    head_chunks=2, # when enable is True, the head_chunks should be > 1  
+) # it makes sense when the use_ring_attn="full_kv_zigzag"
+
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
