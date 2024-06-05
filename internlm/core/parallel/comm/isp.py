@@ -6,7 +6,7 @@ communication for isp parallel.
 
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch import distributed as dist
@@ -14,6 +14,7 @@ from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.context.globals import PROCESS_GROUP
 from internlm.core.naive_amp import unwrap_naive_amp
 from internlm.core.parallel.comm.utils import (
     DUMMY_HANDLE_CONST,
@@ -30,8 +31,6 @@ from internlm.utils.utils import (
     check_attention_argument,
     params_dispatch_with_condition,
 )
-
-from internlm.core.context.globals import PROCESS_GROUP
 
 
 # not really useful, only for code hint.
@@ -632,28 +631,68 @@ class _SeqAllToAll(torch.autograd.Function):
     "sequence alltoall function"
 
     @staticmethod
-    def forward(ctx, group: dist.ProcessGroup, input_: torch.Tensor, scatter_idx: int, gather_idx: int) -> torch.Tensor:
+    def forward(
+        ctx,
+        group: dist.ProcessGroup,
+        scatter_idx: Optional[Union[List[int], int]],
+        gather_idx: Optional[Union[List[int], int]],
+        *input_: torch.Tensor,
+    ) -> torch.Tensor:
+
         ctx.group = group
         ctx.scatter_idx = scatter_idx
         ctx.gather_idx = gather_idx
-
+        seq_world_size = dist.get_world_size(group)
+        
         if dist.get_world_size(group) <= 1:
+            if len(input_) == 1:
+                return input_[0]
             return input_
 
-        seq_world_size = dist.get_world_size(group)
+        if len(input_) == 1:
+            input_list = [t.contiguous() for t in torch.tensor_split(input_[0], seq_world_size, scatter_idx)]
+            output_list = [torch.empty_like(input_list[0]) for _ in range(seq_world_size)]
+            # TODO: use all_to_all_single instead
+            dist.all_to_all(output_list, input_list, group=group)
+            return torch.cat(output_list, dim=gather_idx).contiguous()
 
-        input_list = [t.contiguous() for t in torch.tensor_split(input_, seq_world_size, scatter_idx)]
-        output_list = [torch.empty_like(input_list[0]) for _ in range(seq_world_size)]
-        # TODO: use all_to_all_single instead
-        dist.all_to_all(output_list, input_list, group=group)
-        return torch.cat(output_list, dim=gather_idx).contiguous()
+        outputs = []
+
+        for i in range(len(input_)):
+
+            if i == 0:
+                input_list = [t.contiguous() for t in torch.tensor_split(input_[i], seq_world_size, scatter_idx[i])]
+                output_list = [torch.empty_like(input_list[0]) for _ in range(seq_world_size)]
+                handle_last = dist.all_to_all(output_list, input_list, group=group, async_op=True)
+
+            # conduct the next all2all
+            if i + 1 < len(input_):
+                input_list_next = [
+                    t.contiguous() for t in torch.tensor_split(input_[i + 1], seq_world_size, scatter_idx[i + 1])
+                ]
+                output_list_next = [torch.empty_like(input_list_next[0]) for _ in range(seq_world_size)]
+                handle_next = dist.all_to_all(output_list_next, input_list_next, group=group, async_op=True)
+
+            handle_last.wait()
+
+            outputs.append(torch.cat(output_list, dim=gather_idx[i]).contiguous())
+
+            if i + 1 < len(input_):
+                handle_last = handle_next
+                input_list = input_list_next
+                output_list = output_list_next
+
+        return tuple(outputs)
 
     @staticmethod
     def backward(ctx, *grad_output: torch.Tensor) -> Tuple[None, torch.Tensor, None, None]:
         if dist.get_world_size(ctx.group) <= 1:
-            return (None, *grad_output, None, None)
+            # import pdb; pdb.set_trace()
+            return (None, None, None, *grad_output)
+        if len(grad_output) == 1:
+            return (None, None, None, _SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output))
 
-        return (None, _SeqAllToAll.apply(ctx.group, *grad_output, ctx.gather_idx, ctx.scatter_idx), None, None)
+        return (None, None, None, *_SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output))
 
 all2all_time = []
 overall_time = [] # all2all + attention
@@ -726,11 +765,9 @@ class DistributedAttention(nn.Module):
             uly_pg = PROCESS_GROUP.ULYSSES_PG
             self.spg = uly_pg
             self.sp_size = dist.get_world_size(self.spg)
-
+            
         import time
-        torch.cuda.synchronize()
-        start_time = time.time()
-        q = _SeqAllToAll.apply(self.spg, q, 2, 1)
+
         # kv shape: [1, packlen, 2, n_head, head_dim] or [batch, seqlen, 2, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
         num_head_kv = kv.shape[3]
@@ -739,7 +776,11 @@ class DistributedAttention(nn.Module):
         if self.sp_size > num_head_kv:
             assert self.sp_size % num_head_kv == 0, "the num_head_kv should be divided by sp size."
             kv = expandKVPacked(kv, self.sp_size // num_head_kv, 3)
-        kv = _SeqAllToAll.apply(self.spg, kv, 3, 1)
+        
+        torch.cuda.synchronize()
+        start_time = time.time()
+
+        q, kv = _SeqAllToAll.apply(self.spg, [2, 3], [1, 1], q, kv)
         torch.cuda.synchronize()
         end_time = time.time()
         
@@ -755,12 +796,12 @@ class DistributedAttention(nn.Module):
         
         torch.cuda.synchronize()
         start_time = time.time()
-        context = _SeqAllToAll.apply(self.spg, context, 1, 2)
+        context = _SeqAllToAll.apply(self.spg, 1, 2, context)
         torch.cuda.synchronize()
         end_time = time.time()
         
         second_all2all = (end_time - start_time) * 1000
-            
+
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
         
