@@ -29,6 +29,11 @@ from .zigzag_ring_flash_attn_with_full_kv import (
     zigzag_ring_flash_attn_qkvpacked_func_with_full_kv,
 )
 
+from .zigzag_ring_flash_attn_with_sliding_window import (
+    zigzag_ring_flash_attn_kvpacked_func_with_sliding_window
+)
+
+
 __all__ = [
     "ring_flash_attn_func",
     "ring_flash_attn_kvpacked_func",
@@ -48,4 +53,5 @@ __all__ = [
     "zigzag_ring_flash_attn_func_with_full_kv",
     "zigzag_ring_flash_attn_kvpacked_func_with_full_kv",
     "zigzag_ring_flash_attn_qkvpacked_func_with_full_kv",
+    "zigzag_ring_flash_attn_kvpacked_func_with_sliding_window",
 ]

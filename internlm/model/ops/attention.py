@@ -34,6 +34,7 @@ from internlm.model.ops.ring_flash_attn import (
     zigzag_ring_flash_attn_varlen_func,
     zigzag_ring_flash_attn_varlen_kvpacked_func,
     zigzag_ring_flash_attn_varlen_qkvpacked_func,
+    zigzag_ring_flash_attn_kvpacked_func_with_sliding_window,
 )
 from internlm.model.ops.utils import pack_output_after_attn, unpack_qkv_before_attn
 from internlm.utils.common import get_current_device
@@ -98,6 +99,7 @@ class AttnType(Enum):
     RingFlash = "ring-flash-attn"
     ZigZagFlash = "zigzag-ring-flash-attn"
     FullKVZigZagFlash = "zigzag-ring-flash-attn-with-full-kv"
+    SlidingWindowZigZagFlash = "zigzag-ring-flash-attn-with-sliding-window"
     # NPU Flash Attention
     NPUFlash = "npu-flash-attn"
     # DeepLink Flash Attention
@@ -412,6 +414,14 @@ def _fullkv_zigzag_ring_flash_fixedlen_qkvsplited_attn(q, k, v, dropout_p=0.0, s
         q, k, v, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
     )
 
+def _sliding_window_zigzag_ring_flash_fixedlen_kvpacked_attn(
+    q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False
+):
+    return zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
+        q, kv, dropout_p, softmax_scale, causal, ring_group=PROCESS_GROUP.RING_PG, p2p_group=PROCESS_GROUP.P2P_PG, all_gather_group=PROCESS_GROUP.ALLGATHER_PG,
+    )
+    
+
 
 ###############################
 # npu flash attention operators
@@ -690,6 +700,16 @@ _attn_ops_bindings = {
         AttnOpType.FixedLenKVPacked: _fullkv_zigzag_ring_flash_fixedlen_kvpacked_attn,
         AttnOpType.FixedLenQKVSplited: _fullkv_zigzag_ring_flash_fixedlen_qkvsplited_attn,
     },
+    AttnType.SlidingWindowZigZagFlash:{
+        AttnOpType.VarLenQKVPacked: _fullkv_zigzag_ring_flash_varlen_qkvpacked_attn,
+        AttnOpType.VarLenKVPacked: _fullkv_zigzag_ring_flash_varlen_kvpacked_attn,
+        AttnOpType.VarLenQKVSplited: _fullkv_zigzag_ring_flash_varlen_qkvsplited_attn,
+        AttnOpType.FixedLenQKVPacked: _fullkv_zigzag_ring_flash_fixedlen_qkvpacked_attn,
+        AttnOpType.FixedLenKVPacked: _sliding_window_zigzag_ring_flash_fixedlen_kvpacked_attn,
+        AttnOpType.FixedLenQKVSplited: _fullkv_zigzag_ring_flash_fixedlen_qkvsplited_attn,
+
+    },
+    
     AttnType.NPUFlash: {
         AttnOpType.VarLenQKVPacked: _npu_varlen_qkvpacked_attn,
         AttnOpType.VarLenKVPacked: _npu_varlen_kvpacked_attn,
@@ -724,6 +744,8 @@ def _select_attn_op(op_type: AttnOpType) -> Tuple[AttnType, Callable]:
                 attn_type = AttnType.ZigZagFlash
             elif ring_attn_conf == "full_kv_zigzag":
                 attn_type = AttnType.FullKVZigZagFlash
+            elif ring_attn_conf == "sliding_window_zigzag":
+                attn_type = AttnType.SlidingWindowZigZagFlash
             else:
                 raise NotImplementedError(f"Unsupported ring flash attention type: {ring_attn_conf}")
         elif device_backend == AcceleratorType.NPU and is_torch_npu:

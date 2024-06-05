@@ -655,6 +655,8 @@ class _SeqAllToAll(torch.autograd.Function):
 
         return (None, _SeqAllToAll.apply(ctx.group, *grad_output, ctx.gather_idx, ctx.scatter_idx), None, None)
 
+all2all_time = []
+overall_time = [] # all2all + attention
 
 # adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 class DistributedAttention(nn.Module):
@@ -725,6 +727,9 @@ class DistributedAttention(nn.Module):
             self.spg = uly_pg
             self.sp_size = dist.get_world_size(self.spg)
 
+        import time
+        torch.cuda.synchronize()
+        start_time = time.time()
         q = _SeqAllToAll.apply(self.spg, q, 2, 1)
         # kv shape: [1, packlen, 2, n_head, head_dim] or [batch, seqlen, 2, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
@@ -735,12 +740,60 @@ class DistributedAttention(nn.Module):
             assert self.sp_size % num_head_kv == 0, "the num_head_kv should be divided by sp size."
             kv = expandKVPacked(kv, self.sp_size // num_head_kv, 3)
         kv = _SeqAllToAll.apply(self.spg, kv, 3, 1)
+        torch.cuda.synchronize()
+        end_time = time.time()
+        
+        first_all2all = (end_time - start_time) * 1000
 
+        torch.cuda.synchronize()
+        start_time = time.time()
         context = self.local_attn(q, kv, **kwargs)
+        torch.cuda.synchronize()
+        end_time = time.time()
+        
+        attn = (end_time - start_time) * 1000
+        
+        torch.cuda.synchronize()
+        start_time = time.time()
         context = _SeqAllToAll.apply(self.spg, context, 1, 2)
-
+        torch.cuda.synchronize()
+        end_time = time.time()
+        
+        second_all2all = (end_time - start_time) * 1000
+            
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
+        
+        if gpc.is_forward is True:
+            
+            global all2all_time
+            global overall_time
+        
+            if gpc.step_id >= 15:
+                all2all_time.append(first_all2all + second_all2all)
+                overall_time.append(first_all2all + second_all2all + attn)
+            
+            if gpc.step_id == 19:
+                if len(all2all_time) == 10:
+                    all2all_time.sort()
+                    overall_time.sort()
+                    
+                    all2all_time = all2all_time[0:-1]
+                    overall_time = overall_time[0:-1]
+                    import numpy as np
+                    all2all_time_avg = np.mean(all2all_time)
+                    overall_time_avg = np.mean(overall_time)
+                    
+                    all2all_time_std = np.std(all2all_time)
+                    overall_time_std = np.std(overall_time)
+                    
+                    if gpc.get_global_rank() == 0:
+                        print(f"all2all time = {all2all_time}", flush=True)
+                        print(f"overall time = {overall_time}", flush=True)
+                        print(f"average all2all time = {all2all_time_avg}", flush=True)
+                        print(f"average overall time = {overall_time_avg}", flush=True)
+                        print(f"std all2all time = {all2all_time_std}", flush=True)
+                        print(f"std overall time = {overall_time_std}", flush=True)
 
         return context
 

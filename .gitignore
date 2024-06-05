@@ -147,3 +147,7 @@ llm_ckpts
 events.*
 memory_trace
 RUN*/
+
+# configs
+configs/test*
+configs/RUN

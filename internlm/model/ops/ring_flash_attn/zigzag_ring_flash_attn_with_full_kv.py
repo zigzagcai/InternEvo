@@ -79,9 +79,9 @@ def zigzag_ring_flash_attn_forward(
 
         return out, lse
 
-    head_overlap_enable = gpc.config.ring_attn_head_overlap.get("enable", False)
+    head_overlap_enable = gpc.config.ring_attn_overlap.get("enable", False)
     if head_overlap_enable:
-        head_chunks = gpc.config.ring_attn_head_overlap.get("head_chunks", 1) 
+        head_chunks = gpc.config.ring_attn_overlap.get("head_chunks", 1) 
         assert head_chunks > 1, "when enables the head overlap, the head chunks should be > 1."
         assert k.shape[-2] % head_chunks == 0, "the number of head should be divided by the head chunks."
     else:
@@ -149,9 +149,9 @@ def zigzag_ring_flash_attn_backward_full_kv(
     kv_comm = RingComm(process_group)
     d_kv_comm = RingComm(process_group)
 
-    head_overlap_enable = gpc.config.ring_attn_head_overlap.get("enable", False)
+    head_overlap_enable = gpc.config.ring_attn_overlap.get("enable", False)
     if head_overlap_enable:
-        head_chunks = gpc.config.ring_attn_head_overlap.get("head_chunks", 1) 
+        head_chunks = gpc.config.ring_attn_overlap.get("head_chunks", 1) 
         assert head_chunks > 1, "when enables the head overlap, the head chunks should be > 1."
         assert k.shape[-2] % head_chunks == 0, "the number of head should be divided by the head chunks."
     else:
@@ -312,9 +312,9 @@ def zigzag_ring_flash_attn_backward_full_kv_dkv(
     assert causal is True, "zigzag ring is meaningless for causal=False"
     kv_comm = RingComm(process_group)
 
-    head_overlap_enable = gpc.config.ring_attn_head_overlap.get("enable", False)
+    head_overlap_enable = gpc.config.ring_attn_overlap.get("enable", False)
     if head_overlap_enable:
-        head_chunks = gpc.config.ring_attn_head_overlap.get("head_chunks", 1) 
+        head_chunks = gpc.config.ring_attn_overlap.get("head_chunks", 1) 
         assert head_chunks > 1, "when enables the head overlap, the head chunks should be > 1."
         assert k.shape[-2] % head_chunks == 0, "the number of head should be divided by the head chunks."
     else:
