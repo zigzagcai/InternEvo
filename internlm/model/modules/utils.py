@@ -20,7 +20,7 @@ def Silu(w1_o, w2_o):
     return F.silu(w1_o) * w2_o
 
 
-Silu = torch.jit.script(Silu)
+# Silu = torch.jit.script(Silu)
 
 
 def update_kv_cache(kv, inference_params, layer_idx):

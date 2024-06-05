@@ -13,6 +13,14 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.nn import Module
 
+try:
+    from tutel import moe as tutel_moe
+
+    TUTEL_INSTALLED = True
+except (ModuleNotFoundError, ImportError):
+    TUTEL_INSTALLED = False
+    pass
+
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.modules.mlp import new_feed_forward
@@ -21,6 +29,7 @@ from internlm.utils.megatron_timers import megatron_timer as timer
 
 from .base_layer import BaseMoELayer
 from .utils import all_to_all
+
 
 # global llm logger
 logger = get_logger(__file__)
@@ -66,7 +75,7 @@ def gumbel_rsample(shape: Tuple, device: torch.device) -> Tensor:
 
 # einsum rewrites are on par or more performant
 # switch can be bubbled up in future
-USE_EINSUM = True
+USE_EINSUM = False
 
 
 # einsum dimensions: (g)roup, (s)equence, (e)xpert, (m)odel, (c)apacity
@@ -151,7 +160,9 @@ def top1gating(
     noisy_gate_policy: Optional[str] = None,
     drop_tokens: bool = True,
     use_rts: bool = True,
+    use_tutel: bool = False,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    # breakpoint()
     """Implements Top1Gating on logits."""
     if noisy_gate_policy == "RSample":
         logits_w_noise = logits + gumbel_rsample(logits.shape, device=logits.device)
@@ -209,8 +220,35 @@ def top1gating(
 
     # Compute locations in capacity buffer
 
-    locations1 = torch.cumsum(mask1, dim=0) - 1
+    if use_tutel:
+        # Tutel doesn't support index values masked with zero
+        # so we need to replace masked indices with -1
+        indices_mask = mask1.sum(dim=1) * num_experts - 1
+        indices1_s = torch.min(indices1_s, indices_mask)
 
+    if use_tutel:
+        locations1 = tutel_moe.fast_cumsum_sub_one(mask1)
+    else:
+        locations1 = torch.cumsum(mask1, dim=0) - 1
+
+    if use_tutel:
+        gates1_s = (gates * mask1).sum(dim=1)
+        locations1_s = torch.sum(locations1 * mask1, dim=1)
+        return (
+            l_aux,
+            capacity,
+            num_experts,
+            [
+                indices1_s,
+            ],
+            [
+                locations1_s,
+            ],
+            [
+                gates1_s,
+            ],
+            exp_counts,
+        )
     # Store the capacity location for each token
     locations1_s = torch.sum(locations1 * mask1, dim=1)
 
@@ -226,7 +264,8 @@ def top1gating(
     return l_aux, combine_weights, dispatch_mask, exp_counts
 
 
-def top2gating(logits: Tensor, capacity_factor: float, min_capacity: int) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+def top2gating(logits: Tensor, capacity_factor: float, min_capacity: int,
+               use_tutel=False) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """Implements Top2Gating on logits."""
     # everything is in fp32 in this function
     gates = F.softmax(logits, dim=1)
@@ -238,6 +277,12 @@ def top2gating(logits: Tensor, capacity_factor: float, min_capacity: int) -> Tup
     num_experts = int(gates.shape[1])
     mask1 = F.one_hot(indices1_s, num_classes=num_experts)
 
+    if use_tutel:
+        # Tutel doesn't support index values masked with zero
+        # so we need to replace masked indices with -1
+        indices_mask = mask1.sum(dim=-1) * num_experts - 1
+        indices1_s = torch.min(indices1_s, indices_mask)
+
     # Create a mask for 2nd's expert per token using Gumbel-max trick
     # https://timvieira.github.io/blog/post/2014/07/31/gumbel-max-trick/
     logits_w_noise = logits + gumbel_rsample(logits.shape, device=logits.device)
@@ -245,10 +290,19 @@ def top2gating(logits: Tensor, capacity_factor: float, min_capacity: int) -> Tup
     logits_except1 = logits_w_noise.masked_fill(mask1.bool(), torch.finfo(logits.dtype).min)
     indices2_s = torch.argmax(logits_except1, dim=1)
     mask2 = F.one_hot(indices2_s, num_classes=num_experts)
+    if use_tutel:
+        # Tutel doesn't support index values masked with zero
+        # so we need to replace masked indices with -1
+        indices_mask = mask2.sum(dim=1) * num_experts - 1
+        indices2_s = torch.min(indices2_s, indices_mask)
 
     # Compute locations in capacity buffer
-    locations1 = torch.cumsum(mask1, dim=0) - 1
-    locations2 = torch.cumsum(mask2, dim=0) - 1
+    if use_tutel:
+        locations1 = tutel_moe.fast_cumsum_sub_one(mask1)
+        locations2 = tutel_moe.fast_cumsum_sub_one(mask2)
+    else:
+        locations1 = torch.cumsum(mask1, dim=0) - 1
+        locations2 = torch.cumsum(mask2, dim=0) - 1
     # Update 2nd's location by accounting for locations of 1st
     locations2 += torch.sum(mask1, dim=0, keepdim=True)
 
@@ -260,6 +314,25 @@ def top2gating(logits: Tensor, capacity_factor: float, min_capacity: int) -> Tup
     ce = torch.mean(mask1.type_as(logits), dim=0)
     l_aux = torch.mean(me * ce) * num_experts * num_experts
 
+    if use_tutel:
+        gates1_s = (gates * mask1).sum(dim=1)
+        gates2_s = (gates * mask2).sum(dim=1)
+        locations1_s = torch.sum(locations1 * mask1, dim=1)
+        locations2_s = torch.sum(locations2 * mask2, dim=1)
+        # breakpoint()
+        denom_s = gates1_s + gates2_s
+        denom_s = torch.clamp(denom_s, min=torch.finfo(denom_s.dtype).eps)
+        gates1_s /= denom_s
+        gates2_s /= denom_s
+        return (
+            l_aux,
+            capacity,
+            num_experts,
+            [indices1_s, indices2_s],
+            [locations1_s, locations2_s],
+            [gates1_s, gates2_s],
+            exp_counts,
+        )
     # Remove locations outside capacity from mask
     mask1 *= torch.lt(locations1, capacity)
     mask2 *= torch.lt(locations2, capacity)
@@ -297,6 +370,7 @@ def fused_topkgating(
     k: int,
     capacity_factor: float,
     min_capacity: int,
+    use_tutel: bool = False,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """Implements TopKGating on logits."""
     # everything is in fp32 in this function
@@ -309,10 +383,17 @@ def fused_topkgating(
     indices_s = torch.topk(gates, k, dim=1).indices
     indices_s = indices_s.permute(1, 0).reshape(-1)
     masks = F.one_hot(indices_s, num_classes=num_experts)
-
+    # breakpoint()
     # Compute locations in capacity buffer
-    locations = torch.cumsum(masks, dim=0) - 1
-
+    if use_tutel:
+        # Tutel doesn't support index values masked with zero
+        # so we need to replace masked indices with -1
+        indices_mask = masks.sum(dim=-1) * num_experts - 1
+        indices_s = torch.min(indices_s, indices_mask)
+        locations = tutel_moe.fast_cumsum_sub_one(masks)
+    else:
+        locations = torch.cumsum(masks, dim=0) - 1
+    # breakpoint()
     # reshape (s,e) to (k,s,e)
     masks = masks.reshape(-1, gates.shape[0], num_experts)
     locations = locations.reshape(-1, gates.shape[0], num_experts)
@@ -324,6 +405,26 @@ def fused_topkgating(
     me = torch.mean(gates, dim=0)
     ce = torch.mean(masks[0].type_as(logits), dim=0)
     l_aux = torch.mean(me * ce) * num_experts * num_experts
+
+    if use_tutel:
+        expand_gates = gates.unsqueeze(0)
+        gates_s = (expand_gates * masks).sum(dim=-1)
+        location_s = torch.sum(locations * masks, dim=-1)
+
+        denom_s = torch.sum(gates_s, dim=0)
+        denom_s = torch.clamp(denom_s, min=torch.finfo(denom_s.dtype).eps)
+        gates_s /= denom_s
+        # breakpoint()
+        return (
+            l_aux,
+            capacity,
+            num_experts,
+            [t.squeeze(0) for t in indices_s.reshape(location_s.shape[0], -1).split(1)],
+            [t.squeeze(0) for t in location_s.split(1)],
+            [t.squeeze(0) for t in gates_s.split(1)],
+            exp_counts,
+        )
+
 
     # Remove locations outside capacity from mask
     masks *= torch.lt(locations, capacity)
@@ -395,11 +496,10 @@ class TopKGate(Module):
         self.use_fused_gating = use_fused_gating
 
     def forward(
-        self, inputs: torch.Tensor, used_token: torch.Tensor = None
+        self, inputs: torch.Tensor, used_token: torch.Tensor = None, use_tutel=False,
     ) -> Tuple[Tensor, Tensor, Tensor]:  # type: ignore
         if self.wall_clock_breakdown:
             timer("TopKGate").start()
-
         # input jittering
         if self.noisy_gate_policy == "Jitter" and self.training:
             inputs = multiplicative_jitter(inputs, device=inputs.device)
@@ -408,7 +508,8 @@ class TopKGate(Module):
         if self.use_fused_gating or self.k > 2:
             assert self.noisy_gate_policy != "RSample", "RSample noisy is not supported by fused_gating policy"
             gate_output = fused_topkgating(
-                logits, self.k, self.capacity_factor if self.training else self.eval_capacity_factor, self.min_capacity
+                logits, self.k, self.capacity_factor if self.training else self.eval_capacity_factor, self.min_capacity,
+                use_tutel=use_tutel,
             )
         # deepspeed-style code
         elif self.k == 1:
@@ -420,11 +521,12 @@ class TopKGate(Module):
                 self.noisy_gate_policy if self.training else None,
                 self.drop_tokens,
                 self.use_rts,
+                use_tutel=use_tutel,
             )
 
         elif self.k == 2:
             gate_output = top2gating(
-                logits, self.capacity_factor if self.training else self.eval_capacity_factor, self.min_capacity
+                logits, self.capacity_factor if self.training else self.eval_capacity_factor, self.min_capacity, use_tutel=use_tutel,
             )
         else:
             assert False, "Unsupported gating policy"
@@ -515,7 +617,10 @@ class GShardMOELayer(BaseMoELayer):
         self.time_moe = 0.0
         self.wall_clock_breakdown = False
 
+        self.use_tutel = gpc.config.get('use_tutel', True) and TUTEL_INSTALLED
+
     def forward(self, *inputs: Tensor) -> Tensor:
+        # breakpoint()
         if self.wall_clock_breakdown:
             timer("moe").start()
 
@@ -527,14 +632,33 @@ class GShardMOELayer(BaseMoELayer):
         # group_size = kwargs['group_size'] if 'group_size' in kwargs.keys() else 1
         reshaped_inputs = inputs[0].reshape(-1, d_model)
 
-        self.l_aux, combine_weights, dispatch_mask, self.exp_counts = self.gate(reshaped_inputs, inputs[1])
-        dispatched_inputs = einsum(
-            "sec,sm->ecm", dispatch_mask.type_as(inputs[0]), reshaped_inputs
-        )  # TODO: heavy memory usage due to long sequence length
+        torch.cuda.synchronize()
+        mem_beg=torch.cuda.memory_allocated()
+
+        if self.use_tutel:
+            self.l_aux, C, E, indices_, locations_, gates_, self.exp_counts = self.gate(reshaped_inputs, inputs[1], True)
+            S, M = reshaped_inputs.size(0), reshaped_inputs.size(1)
+
+            if not hasattr(self, '_tutel_dispatcher'):
+                self._tutel_dispatcher = tutel_moe.fast_dispatcher(E, C, M, dispatch_dtype=reshaped_inputs.dtype)
+            self._tutel_dispatcher.update(indices_, locations_, gates_, capacity=C)
+            dispatched_inputs = self._tutel_dispatcher.encode(reshaped_inputs)
+        else:
+
+            self.l_aux, combine_weights, dispatch_mask, self.exp_counts = self.gate(reshaped_inputs, inputs[1])
+            dispatched_inputs = einsum(
+                "sec,sm->ecm", dispatch_mask.type_as(inputs[0]), reshaped_inputs
+            )  # TODO: heavy memory usage due to long sequence length
+        # torch.cuda.synchronize()
+        # mem_used=(torch.cuda.memory_allocated() - mem_beg)/1e9
+        # print(f"gate&encode: {mem_used:.1f}")
 
         if self.wall_clock_breakdown:
             timer("falltoall").start()
 
+        # torch.cuda.synchronize()
+        # mem_beg=torch.cuda.memory_allocated()
+        # breakpoint()
         if gpc.get_world_size(ParallelMode.EXPERT) > 1:
             dispatched_inputs, _ = all_to_all(dispatched_inputs, group=self.ep_group)
 
@@ -559,9 +683,21 @@ class GShardMOELayer(BaseMoELayer):
 
         # Re-shape back: gecm -> ecm
         expert_output = expert_output.reshape(self.ep_size * self.num_local_experts, -1, d_model)
+        # torch.cuda.synchronize()
+        # mem_used=(torch.cuda.memory_allocated() - mem_beg)/1e9
+        # print(f"all2all and expert compute: {mem_used:.1f}")
 
-        combined_output = einsum("sec,ecm->sm", combine_weights.type_as(inputs[0]), expert_output)
+        torch.cuda.synchronize()
+        mem_beg=torch.cuda.memory_allocated()
+        if self.use_tutel:
+            combined_output = self._tutel_dispatcher.decode(expert_output.view(E * int(C.item()), M))
+        else:
+            combined_output = einsum("sec,ecm->sm", combine_weights.type_as(inputs[0]), expert_output)
+        # torch.cuda.synchronize()
+        # mem_used=(torch.cuda.memory_allocated() - mem_beg)/1e9
+        # print(f"_tutel_dispatcher.decode / last einsum: {mem_used:.1f}", flush=True)
 
+        # breakpoint()
         out = combined_output.reshape(inputs[0].shape)
 
         if self.wall_clock_breakdown:

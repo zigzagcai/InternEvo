@@ -7,6 +7,7 @@ from internlm.model.modules.mlp import new_feed_forward
 from internlm.model.moe.gshard_layer import GShardMOELayer
 from internlm.model.moe.megablock.megablock_dmoe import MegaBlockdMoE
 from internlm.model.moe.megablock.megablock_moe import MegaBlockMoE
+from internlm.model.moe.fmoe.fmoe import FMoELayer
 from internlm.utils.logger import get_logger
 
 # global llm logger
@@ -20,6 +21,8 @@ def new_moe_layer(moe_type: str, **kwargs):
         return MegaBlockMoE(**kwargs)
     elif moe_type == "MegaBlock-D":
         return MegaBlockdMoE(**kwargs)
+    elif moe_type == "FMoe":
+        return FMoELayer(**kwargs)
     else:
         raise ValueError(f"Unsupported model type: {moe_type}")
 
