@@ -1,5 +1,5 @@
 JOB_NAME = "7b_internlm2_train"
-model_type="INTERNLM2_PUBLIC"
+model_type = "INTERNLM2_PUBLIC"
 DO_ALERT = False
 
 VOCAB_SIZE = 103168
@@ -11,18 +11,18 @@ MLP_RATIO = 3.5
 NUM_LAYER = 2
 
 
-uly_sp=1
-ring_sp=8
-use_ring_attn="sliding_window_zigzag"  # none, basic, zigzag, full_kv_zigzag, sliding_window_zigzag
-full_kv_zigzag_with_full_dkv=False
-ring_attn_overlap=dict(
+uly_sp = 1
+ring_sp = 8
+use_ring_attn = "sliding_window_zigzag"  # none, basic, zigzag, full_kv_zigzag, sliding_window_zigzag
+full_kv_zigzag_with_full_dkv = False
+ring_attn_overlap = dict(
     enable=False,
-    head_chunks=1, # when enable is True, the head_chunks should be > 1  
+    head_chunks=1,  # when enable is True, the head_chunks should be > 1
     window_size=4,
-    comm='double_ring', # double_ring, p2p_AG
-    interleaved=False, # the group topo
+    comm="double_ring",  # double_ring, p2p_AG
+    interleaved=False,  # the group topo
     use_ulysses_low=True,
-) # it makes sense when the use_ring_attn="full_kv_zigzag"
+)  # it makes sense when the use_ring_attn="full_kv_zigzag"
 
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -54,12 +54,12 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = None #'/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/'
+TRAIN_FOLDER = None  #'/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/'
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=4,
+    micro_num=1,
     # packed_length = micro_bsz * SEQ_LEN
     micro_bsz=1,
     # defaults to the value of micro_num
@@ -141,6 +141,7 @@ beta2_scheduler = dict(
 )
 
 use_fp32_norm = False
+selective_checkpoint = False
 model = dict(
     checkpoint=True,
     num_chunks=1,

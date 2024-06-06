@@ -414,13 +414,26 @@ def _fullkv_zigzag_ring_flash_fixedlen_qkvsplited_attn(q, k, v, dropout_p=0.0, s
         q, k, v, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
     )
 
+
 def _sliding_window_zigzag_ring_flash_fixedlen_kvpacked_attn(
-    q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False
+    q: torch.Tensor,
+    kv: torch.Tensor,
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=False,
+    layer_idx=0,
 ):
     return zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
-        q, kv, dropout_p, softmax_scale, causal, ring_group=PROCESS_GROUP.RING_PG, p2p_group=PROCESS_GROUP.P2P_PG, all_gather_group=PROCESS_GROUP.ALLGATHER_PG,
+        q,
+        kv,
+        dropout_p,
+        softmax_scale,
+        causal,
+        ring_group=PROCESS_GROUP.RING_PG,
+        p2p_group=PROCESS_GROUP.P2P_PG,
+        all_gather_group=PROCESS_GROUP.ALLGATHER_PG,
+        layer_idx=layer_idx,
     )
-    
 
 
 ###############################
@@ -700,16 +713,14 @@ _attn_ops_bindings = {
         AttnOpType.FixedLenKVPacked: _fullkv_zigzag_ring_flash_fixedlen_kvpacked_attn,
         AttnOpType.FixedLenQKVSplited: _fullkv_zigzag_ring_flash_fixedlen_qkvsplited_attn,
     },
-    AttnType.SlidingWindowZigZagFlash:{
+    AttnType.SlidingWindowZigZagFlash: {
         AttnOpType.VarLenQKVPacked: _fullkv_zigzag_ring_flash_varlen_qkvpacked_attn,
         AttnOpType.VarLenKVPacked: _fullkv_zigzag_ring_flash_varlen_kvpacked_attn,
         AttnOpType.VarLenQKVSplited: _fullkv_zigzag_ring_flash_varlen_qkvsplited_attn,
         AttnOpType.FixedLenQKVPacked: _fullkv_zigzag_ring_flash_fixedlen_qkvpacked_attn,
         AttnOpType.FixedLenKVPacked: _sliding_window_zigzag_ring_flash_fixedlen_kvpacked_attn,
         AttnOpType.FixedLenQKVSplited: _fullkv_zigzag_ring_flash_fixedlen_qkvsplited_attn,
-
     },
-    
     AttnType.NPUFlash: {
         AttnOpType.VarLenQKVPacked: _npu_varlen_qkvpacked_attn,
         AttnOpType.VarLenKVPacked: _npu_varlen_kvpacked_attn,
@@ -829,7 +840,7 @@ class SelfAttention(nn.Module):
         dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
         extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
 
-        return op(q, kv, dropout, softmax_scale, causal, *extra_args)
+        return op(q, kv, dropout, softmax_scale, causal, *extra_args, layer_idx=self.layer_idx)
 
     @forward.register(conditions=(str(QKVPackType.QKVSPLITED), str(CuSeqlenType.WithOut)))
     def _q_k_v_without_cu_seqlens(self, q, k, v, softmax_scale=None, causal=None, key_padding_mask=None):

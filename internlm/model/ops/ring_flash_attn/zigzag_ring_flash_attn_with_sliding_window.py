@@ -7,6 +7,8 @@ from internlm.core.parallel.comm.utils import all_gather_raw, reduce_scatter_raw
 
 from .utils import RingComm, update_out_and_lse
 
+fa_output_mapping = {}
+
 
 def create_buffer(tensor, head_chunks, dim):
     buffer_shape = list(tensor.shape)
@@ -940,6 +942,7 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
         ring_group,
         p2p_group=None,
         all_gather_group=None,
+        layer_idx=0,
     ):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
@@ -953,17 +956,31 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
             zigzag_ring_flash_attn_forward if sliding_window_comm == "p2p_AG" else zigzag_double_ring_flash_attn_forward
         )
 
-        out, softmax_lse = forward_func(
-            ring_group,
-            p2p_group,
-            all_gather_group,
-            q,
-            k,
-            v,
-            softmax_scale=softmax_scale,
-            dropout_p=dropout_p,
-            causal=causal,
-        )
+        global fa_output_mapping
+        if gpc.is_forward is False and gpc.config.selective_checkpoint:
+            assert layer_idx in fa_output_mapping
+            out, softmax_lse = fa_output_mapping[layer_idx]
+            # if gpc.get_global_rank() == 0:
+            #     print(f"ht debug get fa output with id:{layer_idx}", flush=True)
+        else:
+            out, softmax_lse = forward_func(
+                ring_group,
+                p2p_group,
+                all_gather_group,
+                q,
+                k,
+                v,
+                softmax_scale=softmax_scale,
+                dropout_p=dropout_p,
+                causal=causal,
+            )
+
+        # store attn forward output to avoid re-computation of attn when activation checkpoint is enabled
+        if gpc.is_forward and gpc.config.selective_checkpoint:
+            fa_output_mapping[layer_idx] = (out, softmax_lse)
+            # if gpc.get_global_rank() == 0:
+            #     print(f"ht debug store fa output with id:{layer_idx}", flush=True)
+
         # this should be out_padded
         ctx.save_for_backward(q, k, v, out, softmax_lse)
         ctx.dropout_p = dropout_p
@@ -1007,34 +1024,7 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
             alibi_slopes=ctx.alibi_slopes,
             deterministic=ctx.deterministic,
         )
-        return dq, dk, dv, None, None, None, None, None, None, None, None, None, None, None
-
-
-def zigzag_ring_flash_attn_qkvpacked_func_with_full_kv(
-    qkv,
-    dropout_p=0.0,
-    softmax_scale=None,
-    causal=False,
-    window_size=(-1, -1),
-    alibi_slopes=None,
-    deterministic=False,
-    return_attn_probs=False,
-    group=None,
-):
-    return ZigZagRingFlashAttnFunc.apply(
-        qkv[:, :, 0],
-        qkv[:, :, 1],
-        qkv[:, :, 2],
-        dropout_p,
-        softmax_scale,
-        causal,
-        window_size,
-        alibi_slopes,
-        deterministic,
-        return_attn_probs,
-        gpc.config.get("full_kv_zigzag_with_full_dkv", False),  # TODO: pass by args.
-        group,
-    )
+        return dq, dk, dv, None, None, None, None, None, None, None, None, None, None, None, None
 
 
 def zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
@@ -1050,6 +1040,7 @@ def zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
     ring_group=None,
     p2p_group=None,
     all_gather_group=None,
+    layer_idx=0,
 ):
     return ZigZagRingFlashAttnFunc.apply(
         q,
@@ -1066,33 +1057,5 @@ def zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
         ring_group,
         p2p_group,
         all_gather_group,
-    )
-
-
-def zigzag_ring_flash_attn_func_with_full_kv(
-    q,
-    k,
-    v,
-    dropout_p=0.0,
-    softmax_scale=None,
-    causal=False,
-    window_size=(-1, -1),
-    alibi_slopes=None,
-    deterministic=False,
-    return_attn_probs=False,
-    group=None,
-):
-    return ZigZagRingFlashAttnFunc.apply(
-        q,
-        k,
-        v,
-        dropout_p,
-        softmax_scale,
-        causal,
-        window_size,
-        alibi_slopes,
-        deterministic,
-        return_attn_probs,
-        gpc.config.get("full_kv_zigzag_with_full_dkv", False),  # TODO: pass by args.
-        group,
+        layer_idx,
     )
