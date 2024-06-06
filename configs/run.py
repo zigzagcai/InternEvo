@@ -6,18 +6,19 @@ import subprocess
 with open('template.py', 'r', encoding='utf-8') as file:
     template = file.read()
 
-# # 定义替换变量的值
-# test1_variables = {
-#     "num_kv_attention_head": [8, 64],
-#     # "uly_sp": [1, 2, 4, 8, 16, ],
-#     "ring_sp": [2, 4, 8, 16, 32, 64],
-#     "window_size": [1],
-#     "comm_type": ["p2p_AG"],
-#     "activation_ckpt": [True]
-# }
+# 定义替换变量的值
+test1_variables = {
+    'seq_len': [32 * 1024, 64 * 1024, 128 * 1024, 256 * 1024, 1024 * 1024],
+    "num_kv_attention_head": [8, 32],
+    # "uly_sp": [1, 2, 4, 8, 16, ],
+    "ring_sp": [2, 4, 8, 16, 32, 64],
+    "window_size": [1],
+    "comm_type": ["double_ring"],
+    "activation_ckpt": [True]
+}
 
-# variables = test1_variables
-# root_path = "test1_Exp2_70/"
+variables = test1_variables
+root_path = "seq/test1_Exp1"
 
 # 定义替换变量的值
 # test2_variables = {
@@ -80,17 +81,17 @@ with open('template.py', 'r', encoding='utf-8') as file:
 # variables = test6_variables
 # root_path = "test6_Exp2_70/"
 
-test7_variables = {
-    "num_kv_attention_head": [8, 64],
-    # "uly_sp": [1, 2, 4, 8, 16, ],
-    "ring_sp": [8],
-    "window_size": [1, 2, 4, 8],
-    "comm_type": ["p2p_AG"],
-    "activation_ckpt": [True]
-}
+# test7_variables = {
+#     "num_kv_attention_head": [8, 64],
+#     # "uly_sp": [1, 2, 4, 8, 16, ],
+#     "ring_sp": [8],
+#     "window_size": [1, 2, 4, 8],
+#     "comm_type": ["p2p_AG"],
+#     "activation_ckpt": [True]
+# }
 
-variables = test7_variables
-root_path = "test7_Exp2_70/"
+# variables = test7_variables
+# root_path = "test7_Exp2_70/"
 
 
 output_folder = root_path
@@ -114,7 +115,7 @@ for i, combination in enumerate(combinations):
         generated_content = generated_content.replace(f"{{{key}}}", str(value))
     
     # 定义输出文件名，可以使用组合索引或其他唯一标识符
-    output_filename = f"kv{combination_dict['num_kv_attention_head']}_ring{combination_dict['ring_sp']}_ws{combination_dict['window_size']}_comm_{combination_dict['comm_type']}_ckpt{combination_dict['activation_ckpt']}.py"
+    output_filename = f"kv{combination_dict['num_kv_attention_head']}_ring{combination_dict['ring_sp']}_ws{combination_dict['window_size']}_comm_{combination_dict['comm_type']}_ckpt{combination_dict['activation_ckpt']}_seq{combination_dict['seq_len']}.py"
     output_path = os.path.join(output_folder, output_filename)
     
     # 检查文件是否已经存在
@@ -129,7 +130,7 @@ for i, combination in enumerate(combinations):
     
     
     # 生成对应的日志文件名
-    log_filename = f"kv{combination_dict['num_kv_attention_head']}_ring{combination_dict['ring_sp']}_ws{combination_dict['window_size']}_comm_{combination_dict['comm_type']}_ckpt{combination_dict['activation_ckpt']}.log"
+    log_filename = f"kv{combination_dict['num_kv_attention_head']}_ring{combination_dict['ring_sp']}_ws{combination_dict['window_size']}_comm_{combination_dict['comm_type']}_ckpt{combination_dict['activation_ckpt']}_seq{combination_dict['seq_len']}.log"
     log_path = os.path.join(output_folder, log_filename)
     
     # 运行命令

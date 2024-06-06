@@ -65,6 +65,7 @@ def main(args):
     get_tflops_func = partial(
         get_megatron_flops,
         checkpoint=gpc.config.model.checkpoint,
+        selective_checkpoint=gpc.config.selective_checkpoint,
         seq_len=gpc.config.data["seq_len"],
         hidden_size=gpc.config.model.hidden_size,
         num_layers=gpc.config.model.num_layers,

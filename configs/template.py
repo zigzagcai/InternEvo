@@ -1,11 +1,11 @@
-JOB_NAME = f"kv{num_kv_attention_head}_ring{ring_sp}_ws{window_size}_comm_{comm_type}_ckpt{activation_ckpt}_interleaved"
+JOB_NAME = f"kv{num_kv_attention_head}_ring{ring_sp}_ws{window_size}_comm_{comm_type}_seqlen{seq_len}_interleaved"
 model_type="INTERNLM2_PUBLIC"
 DO_ALERT = False
 
 VOCAB_SIZE = 103168
-SEQ_LEN = 32768 * 4
-HIDDEN_SIZE = 8192 #4096
-NUM_ATTENTION_HEAD = 64 #32
+SEQ_LEN = {seq_len}
+HIDDEN_SIZE = 4096
+NUM_ATTENTION_HEAD = 32
 NUM_KV_ATTENTION_HEAD = {num_kv_attention_head}
 MLP_RATIO = 3.5
 NUM_LAYER = 2
@@ -15,13 +15,14 @@ uly_sp={uly_sp}
 ring_sp={ring_sp}
 use_ring_attn="sliding_window_zigzag"  # none, basic, zigzag, full_kv_zigzag, sliding_window_zigzag
 full_kv_zigzag_with_full_dkv=False
+selective_checkpoint = True
 ring_attn_overlap=dict(
     enable=False,
     head_chunks=1, # when enable is True, the head_chunks should be > 1  
     window_size={window_size},
     comm='{comm_type}', # double_ring, p2p_AG
-    interleaved=True, # the group topo
-    use_ulysses_low=False,
+    interleaved=False, # the group topo
+    use_ulysses_low=True,
 ) # it makes sense when the use_ring_attn="full_kv_zigzag"
 
 
