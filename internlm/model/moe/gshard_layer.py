@@ -632,9 +632,6 @@ class GShardMOELayer(BaseMoELayer):
         # group_size = kwargs['group_size'] if 'group_size' in kwargs.keys() else 1
         reshaped_inputs = inputs[0].reshape(-1, d_model)
 
-        torch.cuda.synchronize()
-        mem_beg=torch.cuda.memory_allocated()
-
         if self.use_tutel:
             self.l_aux, C, E, indices_, locations_, gates_, self.exp_counts = self.gate(reshaped_inputs, inputs[1], True)
             S, M = reshaped_inputs.size(0), reshaped_inputs.size(1)

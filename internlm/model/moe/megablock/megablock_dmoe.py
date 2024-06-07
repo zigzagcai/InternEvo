@@ -215,7 +215,7 @@ class MegaBlockdMoE(MegaBlockMoE):
             bins,
             padded_bins,
             self.top_k,
-            self.quantize_scatter_num_bits,
+            # self.quantize_scatter_num_bits,
         )
 
         return x, tokens_per_expert.flatten()

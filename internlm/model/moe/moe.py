@@ -60,6 +60,7 @@ class MoE(torch.nn.Module):
         use_residual: bool = False,
         device=None,
         dtype=None,
+        mlp_layer_fusion=False,
     ):
 
         super().__init__()
@@ -77,6 +78,7 @@ class MoE(torch.nn.Module):
             ep_size=ep_size,
             device=device,
             dtype=dtype,
+            mlp_layer_fusion=mlp_layer_fusion,
             **(gpc.config.moe),
         )
 

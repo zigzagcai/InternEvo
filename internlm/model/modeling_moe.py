@@ -141,6 +141,7 @@ class Internlm1MoEDecoder(nn.Module):
                 ep_size=ep_size,
                 device=device,
                 dtype=dtype,
+                mlp_layer_fusion=mlp_layer_fusion,
             )
             # TODO: remove from model package.
             set_fp32_attr_to_module(self.mlp.moe_layer.gate)

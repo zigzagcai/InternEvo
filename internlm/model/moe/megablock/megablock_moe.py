@@ -43,6 +43,7 @@ class MegaBlockMoE(BaseMoELayer):
         device: Optional[torch.device] = None,
         dtype: Optional[torch.device] = None,
         multiple_of: int = 256,
+        **kwargs
     ) -> None:
         assert not gpc.config.parallel.sequence_parallel, "do not support sequence parallel"
         assert ops is not None, 'MegaBlocks not found, please run "pip install megablocks".'
@@ -73,6 +74,8 @@ class MegaBlockMoE(BaseMoELayer):
         # so that we can pass it to radix sort.
         self.sort_end_bit = max(int(np.ceil(np.log2(self.num_experts))), 1)
         self.quantize_scatter_num_bits = -1
+
+        self.num_local_experts = num_experts // ep_size
 
         self.forward_fn = self._parallel_forward if gpc.expert_parallel_size > 1 else self._forward
 
@@ -253,7 +256,7 @@ class MegaBlockMoE(BaseMoELayer):
         x, _ = all_to_all(parallel_x, send_counts, recv_counts, gpc.get_group(ParallelMode.EXPERT))
 
         # Un-permute locally to setup for the next series of operations.
-        x = ops.scatter(x, indices, bin_ids, expert_weights, bins, self.top_k, self.quantize_scatter_num_bits)
+        x = ops.scatter(x, indices, bin_ids, expert_weights, bins, self.top_k,)
         return x, tokens_per_expert.flatten()
 
     def permute_and_compute(self, x, indices, expert_weights, bins, expert_capacity, top_k):  # unused  # unused

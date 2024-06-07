@@ -6,6 +6,7 @@ from internlm.model.moe.base_layer import BaseMoELayer
 
 from fmoe import FMoE
 import fmoe
+from ..utils import Timer
 
 class FMoELayer(BaseMoELayer, FMoE):
     def __init__(self, in_features: int,
@@ -17,7 +18,8 @@ class FMoELayer(BaseMoELayer, FMoE):
             top_k: int = 1,
             dtype=None,
             device: Optional[torch.device] = None,
-            gate_bias=True,):
+            gate_bias=True,
+            **kwargs):
         """create a fast-moe layer
 
         Args:
@@ -63,22 +65,7 @@ class FMoELayer(BaseMoELayer, FMoE):
         )
         self.experts = original_expert.wrapped_experts
         self.experts_fused = False
-        # breakpoint()
 
-        # gate_cls = fmoe.gates.GShardGate
-        # if issubclass(gate_cls, fmoe.gates.NaiveGate):
-        #     self.gate = gate_cls(in_features, self.num_local_experts, ep_size, top_k, gate_bias=gate_bias)
-        # else:
-        #     self.gate = gate_cls(in_features, self.num_local_experts, ep_size, top_k)
-        # self.gate_hook = None
-        # self.mask = None
-        # self.mask_dict = None
-        # self.moe_group = ep_group
-        # self.world_size=ep_size
-        # self.d_model=in_features
-        # self.num_expert=self.num_local_experts
-        # self.experts = experts
-        # self.experts_fused = False
 
     def forward(self, hidden_states, used_token=None):
         original_shape = hidden_states.shape
