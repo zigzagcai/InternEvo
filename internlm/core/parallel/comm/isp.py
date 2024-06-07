@@ -32,6 +32,8 @@ from internlm.utils.utils import (
     params_dispatch_with_condition,
 )
 
+debug_warning = False
+old_all_to_all_single = dist.all_to_all_single
 
 # not really useful, only for code hint.
 class WPCommunicator(ABC):
@@ -695,6 +697,254 @@ class _SeqAllToAll(torch.autograd.Function):
         return (None, None, None, *_SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output))
 
 
+stream_q = None
+stream_kv = None
+
+
+class _SeqAllToAllSingle(torch.autograd.Function):
+    "sequence alltoall function"
+
+    @staticmethod
+    def forward(
+        ctx,
+        group: dist.ProcessGroup,
+        scatter_idx: Optional[Union[List[int], int]],
+        gather_idx: Optional[Union[List[int], int]],
+        *input_list: torch.Tensor,
+    ) -> torch.Tensor:
+
+        if isinstance(scatter_idx, int):
+            scatter_idx = [scatter_idx]
+        if isinstance(gather_idx, int):
+            gather_idx = [gather_idx]
+
+        ctx.group = group
+        ctx.scatter_idx = scatter_idx
+        ctx.gather_idx = gather_idx
+        seq_world_size = dist.get_world_size(group)
+
+        assert len(input_list) <= 2
+
+        if dist.get_world_size(group) <= 1:
+            if len(input_list) == 1:
+                return input_list[0]
+            return input_list
+
+        def before_all2all(idx, input_, inp_shape):
+            if scatter_idx[idx] < 2:
+                input_ = input_.view([seq_world_size, inp_shape[scatter_idx[idx]]] + inp_shape[scatter_idx[idx] + 1 :])
+            else:
+                input_ = (
+                    input_.view([-1, seq_world_size, inp_shape[scatter_idx[idx]]] + inp_shape[scatter_idx[idx] + 1 :])
+                    .transpose(0, 1)
+                    .contiguous()
+                )
+            output = torch.empty_like(input_)
+            return input_, output
+
+        def after_all2all(idx, output, inp_shape):
+            if scatter_idx[idx] < 2:
+                output = output.transpose(0, 1).contiguous()
+            return output.reshape(
+                inp_shape[: gather_idx[idx]]
+                + [
+                    inp_shape[gather_idx[idx]] * seq_world_size,
+                ]
+                + inp_shape[gather_idx[idx] + 1 :]
+            ).contiguous()
+
+        q = input_list[0]
+        q_shape = list(q.shape)
+        q_shape[scatter_idx[0]] = q_shape[scatter_idx[0]] // seq_world_size
+        q, q_out = before_all2all(0, q, q_shape)
+        handle_1 = dist.all_to_all_single(q_out, q, group=group, async_op=True)
+
+        # conduct the next all2all
+        if len(scatter_idx) > 1:
+            kv = input_list[1]
+            kv_shape = list(kv.shape)
+            kv_shape[scatter_idx[1]] = kv_shape[scatter_idx[1]] // seq_world_size
+
+            kv, kv_out = before_all2all(1, kv, kv_shape)
+            handle_2 = dist.all_to_all_single(kv_out, kv, group=group, async_op=True)
+
+        handle_1.wait()
+        q_out = after_all2all(0, q_out, q_shape)
+
+        if len(scatter_idx) > 1:
+            handle_2.wait()
+            kv_out = after_all2all(1, kv_out, kv_shape)
+
+        if len(scatter_idx) > 1:
+            return q_out, kv_out
+        else:
+            return q_out
+
+    @staticmethod
+    def backward(ctx, *grad_output: torch.Tensor) -> Tuple[None, torch.Tensor, None, None]:
+        if dist.get_world_size(ctx.group) <= 1:
+            # import pdb; pdb.set_trace()
+            return (None, None, None, *grad_output)
+
+        out = _SeqAllToAllSingle.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output)
+        if len(grad_output) == 1:
+            return (None, None, None, out)
+        else:
+            return (None, None, None, *out)
+
+
+def tutel_all_to_all_single(output, input, stream=None):
+
+    group_intra = PROCESS_GROUP.ULYSSES_TUTEL_INTRA_PG
+    group_inter = PROCESS_GROUP.ULYSSES_TUTEL_INTER_PG
+
+    assert group_intra is not None and group_inter is not None
+
+    intra_size, inter_size = dist.get_world_size(group_intra), dist.get_world_size(group_inter)
+    total_size = inter_size * intra_size
+    stride = inter_size
+    stride2 = total_size // stride
+
+    tmp_buffer = torch.empty_like(input)
+
+    if stream is None:
+        stream = torch.cuda.default_stream()
+
+    tmp_buffer.record_stream(stream)
+
+    # stream.wait_stream(torch.cuda.default_stream())
+    with torch.cuda.stream(stream):
+        for base in range(0, stride):
+            tmp_buffer[base::stride, ...].copy_(input[base * stride2 : (base + 1) * stride2, ...])
+
+        dist.all_to_all_single(output, tmp_buffer, group=group_intra)
+
+        for base in range(0, stride):
+            tmp_buffer[base * stride2 : (base + 1) * stride2, ...].copy_(output[base::stride, ...])
+
+        dist.all_to_all_single(output, tmp_buffer, group=group_inter)
+
+    return output
+
+
+class _SeqAllToAllSingleTutel(torch.autograd.Function):
+    "sequence alltoall function"
+
+    @staticmethod
+    def forward(
+        ctx,
+        group: dist.ProcessGroup,
+        scatter_idx: Optional[Union[List[int], int]],
+        gather_idx: Optional[Union[List[int], int]],
+        *input_list: torch.Tensor,
+    ) -> torch.Tensor:
+        if isinstance(scatter_idx, int):
+            scatter_idx = [scatter_idx]
+        if isinstance(gather_idx, int):
+            gather_idx = [gather_idx]
+
+        ctx.group = group
+        ctx.scatter_idx = scatter_idx
+        ctx.gather_idx = gather_idx
+        seq_world_size = dist.get_world_size(group)
+
+        event_q = torch.cuda.Event()
+        event_kv = torch.cuda.Event()
+
+        global stream_q, stream_kv
+        if stream_q is None:
+            stream_q = torch.cuda.Stream()
+            stream_kv = torch.cuda.Stream()
+
+        assert len(input_list) <= 2
+
+        if dist.get_world_size(group) <= 1:
+            if len(input_list) == 1:
+                return input_list[0]
+            return input_list
+
+        def before_all2all(idx, input_, inp_shape):
+            if scatter_idx[idx] < 2:
+                input_ = input_.view([seq_world_size, inp_shape[scatter_idx[idx]]] + inp_shape[scatter_idx[idx] + 1 :])
+            else:
+                input_ = (
+                    input_.view([-1, seq_world_size, inp_shape[scatter_idx[idx]]] + inp_shape[scatter_idx[idx] + 1 :])
+                    .transpose(0, 1)
+                    .contiguous()
+                )
+            output = torch.empty_like(input_)
+            return input_, output
+
+        def after_all2all(idx, output, inp_shape):
+            if scatter_idx[idx] < 2:
+                output = output.transpose(0, 1).contiguous()
+            return output.reshape(
+                inp_shape[: gather_idx[idx]]
+                + [
+                    inp_shape[gather_idx[idx]] * seq_world_size,
+                ]
+                + inp_shape[gather_idx[idx] + 1 :]
+            ).contiguous()
+
+        if len(input_list) == 1:
+            inp_shape = list(input_list[0].shape)
+            inp_shape[scatter_idx[0]] = inp_shape[scatter_idx[0]] // seq_world_size
+            input_, output = before_all2all(0, input_list[0], inp_shape)
+            output = tutel_all_to_all_single(output, input_)
+            return after_all2all(0, output, inp_shape)
+
+        q, kv = input_list[0], input_list[1]
+        inp_shape_q, inp_shape_kv = list(q.shape), list(kv.shape)
+        inp_shape_q[scatter_idx[0]] = inp_shape_q[scatter_idx[0]] // seq_world_size
+        inp_shape_kv[scatter_idx[1]] = inp_shape_kv[scatter_idx[1]] // seq_world_size
+
+        stream_q.wait_stream(torch.cuda.default_stream())
+        with torch.cuda.stream(stream_q):
+            q, out_q = before_all2all(0, q, inp_shape_q)
+        out_q = tutel_all_to_all_single(out_q, q, stream_q)
+
+        stream_kv.wait_stream(torch.cuda.default_stream())
+        with torch.cuda.stream(stream_kv):
+            kv, out_kv = before_all2all(1, kv, inp_shape_kv)
+        out_kv = tutel_all_to_all_single(out_kv, kv, stream_kv)
+
+        with torch.cuda.stream(stream_q):
+            out_q = after_all2all(0, out_q, inp_shape_q)
+            event_q.record()
+
+        with torch.cuda.stream(stream_kv):
+            out_kv = after_all2all(1, out_kv, inp_shape_kv)
+            event_kv.record()
+
+        torch.cuda.default_stream().wait_event(event_q)
+        torch.cuda.default_stream().wait_event(event_kv)
+
+        out_q.record_stream(torch.cuda.default_stream())
+        out_kv.record_stream(torch.cuda.default_stream())
+
+        return out_q, out_kv
+
+    @staticmethod
+    def backward(ctx, *grad_output: torch.Tensor) -> Tuple[None, torch.Tensor, None, None]:
+        if dist.get_world_size(ctx.group) <= 1:
+            # import pdb; pdb.set_trace()
+            return (None, None, None, *grad_output)
+        if len(grad_output) == 1:
+            return (
+                None,
+                None,
+                None,
+                _SeqAllToAllSingleTutel.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output),
+            )
+
+        return (
+            None,
+            None,
+            None,
+            *_SeqAllToAllSingleTutel.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output),
+        )
+
+
 all2all_time = []
 overall_time = []  # all2all + attention
 
@@ -767,6 +1017,16 @@ class DistributedAttention(nn.Module):
             uly_pg = PROCESS_GROUP.ULYSSES_PG
             self.spg = uly_pg
             self.sp_size = dist.get_world_size(self.spg)
+
+        if gpc.config.ulysses_all2all.use_single_all2all:
+            _SeqAllToAll = _SeqAllToAllSingle
+
+        if PROCESS_GROUP.ULYSSES_TUTEL_INTRA_PG is not None:
+            _SeqAllToAll = _SeqAllToAllSingleTutel
+            global debug_warning
+            if not debug_warning:
+                print("use tutel all2all !!!", flush=True)
+                debug_warning = True
 
         import time
 

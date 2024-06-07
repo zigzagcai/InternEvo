@@ -5,14 +5,14 @@ DO_ALERT = False
 VOCAB_SIZE = 103168
 SEQ_LEN = 32768
 HIDDEN_SIZE = 4096
-NUM_ATTENTION_HEAD = 32
-NUM_KV_ATTENTION_HEAD = 32
+NUM_ATTENTION_HEAD = 64
+NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 3.5
 NUM_LAYER = 2
 
 
-uly_sp = 1
-ring_sp = 8
+uly_sp = 8
+ring_sp = 4
 use_ring_attn = "sliding_window_zigzag"  # none, basic, zigzag, full_kv_zigzag, sliding_window_zigzag
 full_kv_zigzag_with_full_dkv = False
 ring_attn_overlap = dict(
@@ -24,6 +24,12 @@ ring_attn_overlap = dict(
     use_ulysses_low=True,
 )  # it makes sense when the use_ring_attn="full_kv_zigzag"
 
+ulysses_all2all = dict(
+    use_single_all2all=True,
+    use_tutel_all2all=False,  # Tutel all2all，会将ulysses的all2all拆成: copy+ intra-all2all + copy + inter-all2all
+    allow_pure_intra_tutel=False,  # 如果为True，则允许在 uly_sp<=8 && uly_sp is low 的时候继续划分尝试切除一个2D的通信组
+    allow_pure_inter_tutel=False,  # 如果为True，则允许在 uly_sp is high 的时候继续划分尝试切除一个2D的通信组
+)
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
@@ -197,9 +203,9 @@ weight parallel (dict):
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=8, mode="isp"),
+    tensor=dict(size=32, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=8, overlap=False, memory_pool=False),
+    weight=dict(size=1, overlap=False, memory_pool=False),
 )
 
 cudnn_deterministic = False

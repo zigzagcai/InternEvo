@@ -300,10 +300,20 @@ if __name__ == "__main__":
     assert hasattr(gpc, "config") and gpc.config is not None
 
     from internlm.core.context.globals import set_seq_parallel_pg
-    set_seq_parallel_pg(gpc.config.uly_sp, gpc.config.ring_sp, gpc.get_global_rank(), gpc.get_world_size(ParallelMode.TENSOR),
-                        use_ulysses_low=gpc.config.ring_attn_overlap.get('use_ulysses_low', True),
-                        window_size=gpc.config.ring_attn_overlap.get('window_size', 1),
-                        interleaved=gpc.config.ring_attn_overlap.get('interleaved', False))
+
+    set_seq_parallel_pg(
+        gpc.config.uly_sp,
+        gpc.config.ring_sp,
+        gpc.get_global_rank(),
+        gpc.get_world_size(ParallelMode.TENSOR),
+        use_ulysses_low=gpc.config.ring_attn_overlap.get("use_ulysses_low", True),
+        window_size=gpc.config.ring_attn_overlap.get("window_size", 1),
+        interleaved=gpc.config.ring_attn_overlap.get("interleaved", False),
+        use_single_all2all=gpc.config.ulysses_all2all.get("use_single_all2all", True),
+        use_tutel_all2all=gpc.config.ulysses_all2all.get("use_tutel_all2all", False),
+        allow_pure_intra_tutel=gpc.config.ulysses_all2all.get("allow_pure_intra_tutel", False),
+        allow_pure_inter_tutel=gpc.config.ulysses_all2all.get("allow_pure_inter_tutel", False),
+    )
 
     # initialize monitor manager context
     with initialize_monitor_manager(
