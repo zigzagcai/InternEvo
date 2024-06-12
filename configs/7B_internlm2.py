@@ -3,25 +3,25 @@ model_type = "INTERNLM2_PUBLIC"
 DO_ALERT = False
 
 VOCAB_SIZE = 103168
-SEQ_LEN = 32768
+SEQ_LEN = 32768 * 8
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
-NUM_KV_ATTENTION_HEAD = 32
+NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 3.5
-NUM_LAYER = 2
+NUM_LAYER = 32
 
 
-uly_sp = 1
-ring_sp = 8
+uly_sp = 16
+ring_sp = 4
 use_ring_attn = "sliding_window_zigzag"  # none, basic, zigzag, full_kv_zigzag, sliding_window_zigzag
 full_kv_zigzag_with_full_dkv = False
 ring_attn_overlap = dict(
     enable=False,
     head_chunks=1,  # when enable is True, the head_chunks should be > 1
-    window_size=4,
+    window_size=1,
     comm="double_ring",  # double_ring, p2p_AG
-    interleaved=False,  # the group topo
-    use_ulysses_low=True,
+    interleaved=True,  # the group topo
+    use_ulysses_low=False,
 )  # it makes sense when the use_ring_attn="full_kv_zigzag"
 
 
@@ -197,9 +197,9 @@ weight parallel (dict):
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=8, mode="isp"),
+    tensor=dict(size=64, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=8, overlap=False, memory_pool=False),
+    weight=dict(size=8, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False

@@ -217,8 +217,8 @@ def zigzag_double_ring_flash_attn_forward(
     deterministic=False,  # pylint: disable=W0613
 ):
 
-    if gpc.get_global_rank() == 0:
-        print("DOUBLE RING FORWARD.........", flush=True)
+    # if gpc.get_global_rank() == 0:
+    #     print("DOUBLE RING FORWARD.........", flush=True)
 
     assert causal is True, "zigzag ring is meaningless for causal=False"
     ring_comm = RingComm(ring_pg)
@@ -396,8 +396,8 @@ def zigzag_double_ring_flash_attn_backward(
     alibi_slopes=None,  # pylint: disable=W0613
     deterministic=False,  # pylint: disable=W0613
 ):
-    if gpc.get_global_rank() == 0:
-        print("DOUBLE RING BACKWARD.........", flush=True)
+    # if gpc.get_global_rank() == 0:
+    #     print("DOUBLE RING BACKWARD.........", flush=True)
     assert causal is True, "zigzag ring is meaningless for causal=False"
 
     ring_comm = RingComm(ring_pg)
@@ -500,7 +500,7 @@ def zigzag_double_ring_flash_attn_backward(
 
         return dq.to(q.dtype), next_dk.to(q.dtype), next_dv.to(q.dtype)
 
-    def _head_other_window_backward(dout, q, k, v, dq, dk, dv, out, softmax_lse, window_num_idx):
+    def _head_other_window_backward(dout, q, k, v, dq, dk, dv, out, softmax_lse, window_num_idx, inter_window_dkv_comm):
 
         dk_comm_buffer, dv_comm_buffer = None, None
 
@@ -525,6 +525,9 @@ def zigzag_double_ring_flash_attn_backward(
                     local_dkv_comm.wait()
                     dk_comm_buffer, dv_comm_buffer = dk, dv
                     dk, dv = next_dk, next_dv
+
+                if step == 0:
+                    inter_window_dkv_comm.wait()
 
                 dk += dk_buffer
                 dv += dv_buffer
@@ -557,6 +560,9 @@ def zigzag_double_ring_flash_attn_backward(
                     local_dkv_comm.wait()
                     dk_comm_buffer, dv_comm_buffer = dk, dv
                     dk, dv = next_dk, next_dv
+
+                if step == 0:
+                    inter_window_dkv_comm.wait()
 
                 dk[:, :block_seq_len] += dk_buffer[:, :block_seq_len]
                 dv[:, :block_seq_len] += dv_buffer[:, :block_seq_len]
@@ -597,7 +603,7 @@ def zigzag_double_ring_flash_attn_backward(
                 kv_comm.commit()
 
             if j > 0:
-                dkv_comm.wait()
+                # dkv_comm.wait()
                 dk = next_dk
                 dv = next_dv
 
@@ -622,6 +628,7 @@ def zigzag_double_ring_flash_attn_backward(
                     out[..., i * head_step : (i + 1) * head_step, :],
                     softmax_lse[..., i * head_step : (i + 1) * head_step, :],
                     window_num_idx=j,
+                    inter_window_dkv_comm=dkv_comm,
                 )
 
             next_dk: torch.Tensor = dkv_comm.send_recv(dk.contiguous())

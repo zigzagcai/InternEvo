@@ -601,11 +601,11 @@ def record_current_batch_training_metrics(
             2,
         )
 
-        if batch_count >= 15:
+        if batch_count >= 5:
             tgses.append(tgs_origin)
             tflopses.append(tflops)
 
-        if batch_count == 19:
+        if batch_count == 9:
             import numpy as np
 
             avg_tgs = np.mean(tgses)

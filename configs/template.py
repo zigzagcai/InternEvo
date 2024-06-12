@@ -1,5 +1,5 @@
 JOB_NAME = f"kv{num_kv_attention_head}_ring{ring_sp}_ws{window_size}_comm_{comm_type}_seqlen{seq_len}_interleaved"
-model_type="INTERNLM2_PUBLIC"
+model_type = "INTERNLM2_PUBLIC"
 DO_ALERT = False
 
 VOCAB_SIZE = 103168
@@ -8,22 +8,22 @@ HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
 NUM_KV_ATTENTION_HEAD = {num_kv_attention_head}
 MLP_RATIO = 3.5
-NUM_LAYER = 2
+NUM_LAYER = 32
 
 
-uly_sp={uly_sp}
-ring_sp={ring_sp}
-use_ring_attn="sliding_window_zigzag"  # none, basic, zigzag, full_kv_zigzag, sliding_window_zigzag
-full_kv_zigzag_with_full_dkv=False
+uly_sp = {uly_sp}
+ring_sp = {ring_sp}
+use_ring_attn = "sliding_window_zigzag"  # none, basic, zigzag, full_kv_zigzag, sliding_window_zigzag
+full_kv_zigzag_with_full_dkv = False
 selective_checkpoint = True
-ring_attn_overlap=dict(
+ring_attn_overlap = dict(
     enable=False,
-    head_chunks=1, # when enable is True, the head_chunks should be > 1  
+    head_chunks=1,  # when enable is True, the head_chunks should be > 1
     window_size={window_size},
-    comm='{comm_type}', # double_ring, p2p_AG
-    interleaved=False, # the group topo
-    use_ulysses_low=True,
-) # it makes sense when the use_ring_attn="full_kv_zigzag"
+    comm="{comm_type}",  # double_ring, p2p_AG
+    interleaved=True,  # the group topo
+    use_ulysses_low=False,
+)  # it makes sense when the use_ring_attn="full_kv_zigzag"
 
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -55,7 +55,7 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = None #'/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/'
+TRAIN_FOLDER = None  #'/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/'
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
@@ -68,7 +68,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=0,
     pack_sample_into_one=True,
-    total_steps=20,
+    total_steps=10,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -200,7 +200,7 @@ parallel = dict(
     zero1=dict(size=-1),
     tensor=dict(size=64, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=8, overlap=False, memory_pool=False),
+    weight=dict(size=8, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False
