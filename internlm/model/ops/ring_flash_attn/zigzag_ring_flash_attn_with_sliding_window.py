@@ -31,8 +31,8 @@ def zigzag_ring_flash_attn_forward(
     deterministic=False,  # pylint: disable=W0613
 ):
 
-    if gpc.get_global_rank() == 0:
-        print("P2P + AllGATHER FORWARD.........", flush=True)
+    # if gpc.get_global_rank() == 0:
+    #     print("P2P + AllGATHER FORWARD.........", flush=True)
 
     assert causal is True, "zigzag ring is meaningless for causal=False"
     ring_comm = RingComm(ring_pg)
@@ -664,8 +664,8 @@ def zigzag_ring_flash_attn_backward(
     alibi_slopes=None,  # pylint: disable=W0613
     deterministic=False,  # pylint: disable=W0613
 ):
-    if gpc.get_global_rank() == 0:
-        print("P2P + AllGATHER BACKWARD.........", flush=True)
+    # if gpc.get_global_rank() == 0:
+    #     print("P2P + AllGATHER BACKWARD.........", flush=True)
     assert causal is True, "zigzag ring is meaningless for causal=False"
 
     all_gather_comm = RingComm(all_gather_pg)
@@ -929,6 +929,8 @@ def zigzag_ring_flash_attn_backward(
     return dq_final.to(q.dtype), dk_final.to(k.dtype), dv_final.to(v.dtype)
 
 
+attn_backward_time = []
+
 class ZigZagRingFlashAttnFunc(torch.autograd.Function):
     """ZigZagRingFlashAttnFunc"""
 
@@ -1004,6 +1006,9 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dout, *args):  # pylint: disable=W0613
+        import time
+        torch.cuda.synchronize()
+        start_time = time.time()
         q, k, v, out, softmax_lse = ctx.saved_tensors
 
         sliding_window_comm = ctx.sliding_window_comm
@@ -1031,6 +1036,30 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
             alibi_slopes=ctx.alibi_slopes,
             deterministic=ctx.deterministic,
         )
+        torch.cuda.synchronize()
+        end_time = time.time()
+        global attn_backward_time
+        if gpc.step_id >= 5:
+            attn_backward_time.append((end_time - start_time) * 1000)
+        if gpc.step_id == 9:
+            if len(attn_backward_time) == 100:
+                if gpc.get_global_rank() == 0:
+                    print(f"origin attn backward time = {attn_backward_time}", flush=True)
+
+                    attn_backward_time.sort()
+
+                    attn_backward_time = attn_backward_time[0:-5]
+                    import numpy as np
+
+                    all2all_time_avg = np.mean(attn_backward_time)
+
+                    all2all_time_std = np.std(attn_backward_time)
+
+                    if gpc.get_global_rank() == 0:
+                        print(f"attn backward time = {attn_backward_time}", flush=True)
+                        print(f"average attn backward time = {all2all_time_avg}", flush=True)
+                        print(f"std attn backward time = {all2all_time_std}", flush=True)
+        
         return dq, dk, dv, None, None, None, None, None, None, None, None, None, None, None, None
 
 

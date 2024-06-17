@@ -151,3 +151,7 @@ RUN*/
 # configs
 configs/test*
 configs/RUN
+configs/seq
+configs/70B
+configs/7B
+configs/e2e
