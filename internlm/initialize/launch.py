@@ -2,7 +2,6 @@
 # -*- encoding: utf-8 -*-
 
 import argparse
-import gc
 import os
 from pathlib import Path
 from typing import Dict, Union
@@ -160,6 +159,14 @@ def args_sanity_check():
         data._add_item("diag_outlier_ratio", 1.1)
 
     data.diag_outlier_ratio = max(1, data.diag_outlier_ratio)
+
+    if "use_shm" not in data:
+        data._add_item("use_shm", False)
+    elif data.use_shm and "shm_path" not in data:
+        data._add_item("shm_path", "/dev/shm/metacache")
+
+    if data.train_folder is None:
+        data.use_shm = False
 
     if "use_packed_dataset" not in data:
         data._add_item("use_packed_dataset", True)
@@ -624,9 +631,6 @@ def initialize_distributed_env(
         seed (int, optional): Specified random seed for every process. 1024 by default.
     """
     backend = internlm_accelerator._communication_backend_name
-
-    # close automatic garbage collection
-    gc.disable()
 
     if launcher == "torch":
         launch_from_torch(config=config, seed=seed, backend=backend)
