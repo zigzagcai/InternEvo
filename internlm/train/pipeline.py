@@ -494,7 +494,7 @@ def initialize_llm_profile(profiling: bool = False, start_time: str = None):
 
     return llm_profile
 
-    
+
 tgses = []
 tflopses = []
 
@@ -524,7 +524,6 @@ def record_current_batch_training_metrics(
     """
     Print some training metrics of current batch.
     """
-
 
     set_env_var(key="LAST_ACTIVE_TIMESTAMP", value=int(time.time()))
 
@@ -604,23 +603,6 @@ def record_current_batch_training_metrics(
             real_num_tokens / time_cost,
             2,
         )
-        
-        if batch_count >= 5:
-            tgses.append(tgs_origin)
-            tflopses.append(tflops)
-            
-        if batch_count == 9:
-            import numpy as np
-            avg_tgs = np.mean(tgses)
-            avg_tflops = np.mean(tflopses)
-            
-            if gpc.get_global_rank() == 0:
-                print(f"tgses: {tgses}", flush=True)
-                print(f"tflopses: {tflopses}", flush=True)
-                print(f"avg tgs = {avg_tgs}", flush=True)
-                print(f"avg tflops = {avg_tflops}", flush=True)
-                print(f"mfu = {avg_tflops / 312 * 0.75}", flush=True)
-            
 
         if batch_count >= 5:
             tgses.append(tgs_origin)
