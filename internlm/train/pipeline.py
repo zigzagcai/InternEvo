@@ -619,7 +619,7 @@ def record_current_batch_training_metrics(
                 print(f"tflopses: {tflopses}", flush=True)
                 print(f"avg tgs = {avg_tgs}", flush=True)
                 print(f"avg tflops = {avg_tflops}", flush=True)
-                print(f"mfu = {avg_tflops / 312 * 0.75}", flush=True)
+                print(f"mfu = {avg_tflops / 312}", flush=True)
 
         infos = {
             "tflops": tflops,
