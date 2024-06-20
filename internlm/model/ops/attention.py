@@ -432,6 +432,8 @@ def _sliding_window_zigzag_ring_flash_fixedlen_kvpacked_attn(
         ring_group=PROCESS_GROUP.RING_PG,
         p2p_group=PROCESS_GROUP.P2P_PG,
         all_gather_group=PROCESS_GROUP.ALLGATHER_PG,
+        dkv_p2p_group=PROCESS_GROUP.DKV_P2P_PG,
+        dkv_all_gather_group=PROCESS_GROUP.DKV_ALLGATHER_PG,
         layer_idx=layer_idx,
     )
 

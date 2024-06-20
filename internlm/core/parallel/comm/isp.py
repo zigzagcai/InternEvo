@@ -625,10 +625,12 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
     def post_helper_func(self, scheduler, outputs, label) -> None:  # pylint: disable=W0613
         pass
 
+
 all2all_time = []
 overall_time = []  # all2all + attention
 all2all_time_backward_first = []
 all2all_time_backward_second = []
+
 
 # adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 class _SeqAllToAll(torch.autograd.Function):
@@ -691,6 +693,8 @@ class _SeqAllToAll(torch.autograd.Function):
     @staticmethod
     def backward(ctx, *grad_output: torch.Tensor) -> Tuple[None, torch.Tensor, None, None]:
         import time
+
+        torch.distributed.barrier()
         torch.cuda.synchronize()
         start_time = time.time()
         if dist.get_world_size(ctx.group) <= 1:
@@ -698,25 +702,30 @@ class _SeqAllToAll(torch.autograd.Function):
             return (None, None, None, *grad_output)
         if len(grad_output) == 1:
             res = _SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output)
+
+            torch.distributed.barrier()
             torch.cuda.synchronize()
             end_time = time.time()
             if gpc.step_id >= 5:
                 all2all_time_backward_first.append((end_time - start_time) * 1000)
             return (None, None, None, res)
             # return (None, None, None, _SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output))
-        
+
         res = _SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output)
+        torch.distributed.barrier()
         torch.cuda.synchronize()
         end_time = time.time()
         if gpc.step_id >= 5:
             all2all_time_backward_second.append((end_time - start_time) * 1000)
-        
+
         if gpc.step_id == 9:
             if len(all2all_time_backward_first) == 100 and len(all2all_time_backward_second) == 100:
-                all2all_time_backward = [a + b for a, b in zip(all2all_time_backward_first, all2all_time_backward_second)]
+                all2all_time_backward = [
+                    a + b for a, b in zip(all2all_time_backward_first, all2all_time_backward_second)
+                ]
                 if gpc.get_global_rank() == 0:
                     print(f"origin all2all backward time = {all2all_time_backward}", flush=True)
-             
+
                 all2all_time_backward.sort()
 
                 all2all_time_backward = all2all_time_backward[0:-5]
@@ -730,7 +739,7 @@ class _SeqAllToAll(torch.autograd.Function):
                     print(f"all2all backward time = {all2all_time_backward}", flush=True)
                     print(f"average all2all backward time = {all2all_time_avg}", flush=True)
                     print(f"std all2all backward time = {all2all_time_std}", flush=True)
-            
+
         # return (None, None, None, *_SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output))
         return (None, None, None, *res)
 
@@ -815,26 +824,31 @@ class DistributedAttention(nn.Module):
             assert self.sp_size % num_head_kv == 0, "the num_head_kv should be divided by sp size."
             kv = expandKVPacked(kv, self.sp_size // num_head_kv, 3)
 
+        torch.distributed.barrier()
         torch.cuda.synchronize()
         start_time = time.time()
-
         q, kv = _SeqAllToAll.apply(self.spg, [2, 3], [1, 1], q, kv)
+        torch.distributed.barrier()
         torch.cuda.synchronize()
         end_time = time.time()
 
         first_all2all = (end_time - start_time) * 1000
 
+        torch.distributed.barrier()
         torch.cuda.synchronize()
         start_time = time.time()
         context = self.local_attn(q, kv, **kwargs)
+        torch.distributed.barrier()
         torch.cuda.synchronize()
         end_time = time.time()
 
         attn = (end_time - start_time) * 1000
 
+        torch.distributed.barrier()
         torch.cuda.synchronize()
         start_time = time.time()
         context = _SeqAllToAll.apply(self.spg, 1, 2, context)
+        torch.distributed.barrier()
         torch.cuda.synchronize()
         end_time = time.time()
 

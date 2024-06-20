@@ -383,6 +383,8 @@ def zigzag_double_ring_flash_attn_backward(
     ring_pg,
     p2p_pg,
     local_p2p_pg,
+    dkv_p2p_pg,
+    dkv_local_p2p_pg,
     dout,
     q,
     k,
@@ -401,10 +403,10 @@ def zigzag_double_ring_flash_attn_backward(
     assert causal is True, "zigzag ring is meaningless for causal=False"
 
     ring_comm = RingComm(ring_pg)
-    dkv_comm = RingComm(p2p_pg)
+    dkv_comm = RingComm(dkv_p2p_pg)
     kv_comm = RingComm(p2p_pg)
     local_kv_comm = RingComm(local_p2p_pg)
-    local_dkv_comm = RingComm(local_p2p_pg)
+    local_dkv_comm = RingComm(dkv_local_p2p_pg)
 
     # print(f"xyt global rank = {gpc.get_global_rank()}, ring_pg = {torch.distributed.get_process_group_ranks(ring_pg)}, p2p_pg = {torch.distributed.get_process_group_ranks(p2p_pg)}, local_p2p_pg = {torch.distributed.get_process_group_ranks(local_p2p_pg)}", flush=True)
 
@@ -931,6 +933,7 @@ def zigzag_ring_flash_attn_backward(
 
 attn_backward_time = []
 
+
 class ZigZagRingFlashAttnFunc(torch.autograd.Function):
     """ZigZagRingFlashAttnFunc"""
 
@@ -951,6 +954,8 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
         ring_group,
         p2p_group=None,
         all_gather_group=None,
+        dkv_p2p_group=None,
+        dkv_all_gather_group=None,
         layer_idx=0,
     ):
         if softmax_scale is None:
@@ -1001,12 +1006,16 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
         ctx.ring_group = ring_group
         ctx.p2p_group = p2p_group
         ctx.all_gather_group = all_gather_group
+        ctx.dkv_p2p_group = dkv_p2p_group
+        ctx.dkv_all_gather_group = dkv_all_gather_group
         ctx.sliding_window_comm = sliding_window_comm
         return out if not return_softmax else (out, softmax_lse, None)
 
     @staticmethod
     def backward(ctx, dout, *args):  # pylint: disable=W0613
         import time
+
+        torch.distributed.barrier()
         torch.cuda.synchronize()
         start_time = time.time()
         q, k, v, out, softmax_lse = ctx.saved_tensors
@@ -1023,6 +1032,8 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
             ctx.ring_group,
             ctx.p2p_group,
             ctx.all_gather_group,
+            ctx.dkv_p2p_group,
+            ctx.dkv_all_gather_group,
             dout,
             q,
             k,
@@ -1036,6 +1047,8 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
             alibi_slopes=ctx.alibi_slopes,
             deterministic=ctx.deterministic,
         )
+
+        torch.distributed.barrier()
         torch.cuda.synchronize()
         end_time = time.time()
         global attn_backward_time
@@ -1059,8 +1072,8 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
                         print(f"attn backward time = {attn_backward_time}", flush=True)
                         print(f"average attn backward time = {all2all_time_avg}", flush=True)
                         print(f"std attn backward time = {all2all_time_std}", flush=True)
-        
-        return dq, dk, dv, None, None, None, None, None, None, None, None, None, None, None, None
+
+        return dq, dk, dv, None, None, None, None, None, None, None, None, None, None, None, None, None, None
 
 
 def zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
@@ -1076,6 +1089,8 @@ def zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
     ring_group=None,
     p2p_group=None,
     all_gather_group=None,
+    dkv_p2p_group=None,
+    dkv_all_gather_group=None,
     layer_idx=0,
 ):
     return ZigZagRingFlashAttnFunc.apply(
@@ -1093,5 +1108,7 @@ def zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
         ring_group,
         p2p_group,
         all_gather_group,
+        dkv_p2p_group,
+        dkv_all_gather_group,
         layer_idx,
     )

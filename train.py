@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+import os
 import logging
 import socket
 import time
@@ -52,9 +53,14 @@ from internlm.utils.writer import Writer
 logger = logging.getLogger(__file__)
 
 
+def check_cuda_env():
+    assert os.getenv("CUDA_DEVICE_MAX_CONNECTIONS") is not None, "Env var CUDA_DEVICE_MAX_CONNECTIONS should be set."
+
+
 def main(args):
     very_begining_time = time.time()
     enable_pytorch_expandable_segments()
+    check_cuda_env()
 
     # init setting
     skip_batches = gpc.config.data.skip_batches
@@ -301,10 +307,16 @@ if __name__ == "__main__":
     assert hasattr(gpc, "config") and gpc.config is not None
 
     from internlm.core.context.globals import set_seq_parallel_pg
-    set_seq_parallel_pg(gpc.config.uly_sp, gpc.config.ring_sp, gpc.get_global_rank(), gpc.get_world_size(ParallelMode.TENSOR),
-                        use_ulysses_low=gpc.config.ring_attn_overlap.get('use_ulysses_low', True),
-                        window_size=gpc.config.ring_attn_overlap.get('window_size', 1),
-                        interleaved=gpc.config.ring_attn_overlap.get('interleaved', False))
+
+    set_seq_parallel_pg(
+        gpc.config.uly_sp,
+        gpc.config.ring_sp,
+        gpc.get_global_rank(),
+        gpc.get_world_size(ParallelMode.TENSOR),
+        use_ulysses_low=gpc.config.ring_attn_overlap.get("use_ulysses_low", True),
+        window_size=gpc.config.ring_attn_overlap.get("window_size", 1),
+        interleaved=gpc.config.ring_attn_overlap.get("interleaved", False),
+    )
 
     # initialize monitor manager context
     with initialize_monitor_manager(
