@@ -973,7 +973,7 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
         global fa_output_mapping
         if gpc.is_forward is False and gpc.config.selective_checkpoint:
             assert layer_idx in fa_output_mapping
-            out, softmax_lse = fa_output_mapping[layer_idx]
+            out, softmax_lse = fa_output_mapping.pop(layer_idx)
             # if gpc.get_global_rank() == 0:
             #     print(f"ht debug get fa output with id:{layer_idx}", flush=True)
         else:
@@ -1016,7 +1016,7 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
         import time
 
         # torch.distributed.barrier()
-        # torch.cuda.synchronize()
+        torch.cuda.synchronize()
         # start_time = time.time()
         q, k, v, out, softmax_lse = ctx.saved_tensors
 
@@ -1049,7 +1049,7 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
         )
 
         # torch.distributed.barrier()
-        # torch.cuda.synchronize()
+        torch.cuda.synchronize()
         # end_time = time.time()
         # global attn_backward_time
         # if gpc.step_id >= 5:

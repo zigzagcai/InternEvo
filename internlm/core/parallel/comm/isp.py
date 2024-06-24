@@ -835,11 +835,11 @@ class DistributedAttention(nn.Module):
         # first_all2all = (end_time - start_time) * 1000
 
         # torch.distributed.barrier()
-        # torch.cuda.synchronize()
+        torch.cuda.synchronize()
         # start_time = time.time()
         context = self.local_attn(q, kv, **kwargs)
         # torch.distributed.barrier()
-        # torch.cuda.synchronize()
+        torch.cuda.synchronize()
         # end_time = time.time()
 
         # attn = (end_time - start_time) * 1000
