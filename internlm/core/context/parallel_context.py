@@ -554,6 +554,7 @@ class ParallelContext(metaclass=SingletonMeta):
             self.zero1_parallel_size,
             self.nettest_parallel_size,
             self.expert_parallel_size,
+            parallel_config.sequence_2D,
         ]
 
         # run initialization of different process groups
@@ -575,6 +576,9 @@ class ParallelContext(metaclass=SingletonMeta):
             initializers.append(pgroup_initializer.Initializer_Pipeline(*initializer_args))
         if self.config.model.get("num_experts", 1) > 1:
             initializers.append(pgroup_initializer.Initializer_Expert_Data(*initializer_args))
+        if parallel_config.sequence_2D.get("enable", False) is True:
+            initializers.append(pgroup_initializer.Initializer_2D_SEQUENCE_PARALLEL(*initializer_args))
+
         for initializer in initializers:
             parallel_setting = initializer.init_dist_group()
             if isinstance(parallel_setting, list):

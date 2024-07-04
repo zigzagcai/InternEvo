@@ -1,28 +1,14 @@
 JOB_NAME = "7b_internlm2_train"
-model_type = "INTERNLM2_PUBLIC"
+model_type="INTERNLM2_PUBLIC"
 DO_ALERT = False
 
-VOCAB_SIZE = 103168
-SEQ_LEN = 32768 * 8
+VOCAB_SIZE = 92544
+SEQ_LEN = 2048
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
 NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 3.5
 NUM_LAYER = 32
-
-
-uly_sp = 16
-ring_sp = 4
-use_ring_attn = "sliding_window_zigzag"  # none, basic, zigzag, full_kv_zigzag, sliding_window_zigzag
-full_kv_zigzag_with_full_dkv = False
-ring_attn_overlap = dict(
-    enable=False,
-    head_chunks=1,  # when enable is True, the head_chunks should be > 1
-    window_size=1,
-    comm="double_ring",  # double_ring, p2p_AG
-    interleaved=True,  # the group topo
-    use_ulysses_low=False,
-)  # it makes sense when the use_ring_attn="full_kv_zigzag"
 
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -54,19 +40,19 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = None  #'/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/'
+TRAIN_FOLDER = None
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=1,
+    micro_num=4,
     # packed_length = micro_bsz * SEQ_LEN
     micro_bsz=1,
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
     valid_every=0,
-    pack_sample_into_one=True,
+    pack_sample_into_one=False,
     total_steps=20,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
@@ -81,7 +67,6 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
-    use_packed_dataset=False,
 )
 
 grad_scaler = dict(
@@ -105,7 +90,7 @@ grad_scaler = dict(
 
 hybrid_zero_optimizer = dict(
     # Enable low_level_optimzer overlap_communication
-    overlap_sync_grad=False,
+    overlap_sync_grad=True,
     overlap_sync_param=False,
     # bucket size for nccl communication params
     reduce_bucket_size=512 * 1024 * 1024,
@@ -141,9 +126,8 @@ beta2_scheduler = dict(
 )
 
 use_fp32_norm = False
-selective_checkpoint = False
 model = dict(
-    checkpoint=True,
+    checkpoint=False,
     num_chunks=1,
     num_attention_heads=NUM_ATTENTION_HEAD,
     embed_split_hidden=True,
@@ -196,10 +180,10 @@ weight parallel (dict):
     3. memory_pool: bool, enable/disable memory pool, defaults to False.
 """
 parallel = dict(
-    zero1=dict(size=-1),
-    tensor=dict(size=64, mode="isp"),
+    zero1=dict(size=8),
+    tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=8, overlap=True, memory_pool=True),
+    weight=dict(size=1, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False

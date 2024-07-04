@@ -1,21 +1,21 @@
 JOB_NAME = "7b_train"
+model_type = "INTERNLM2_PUBLIC"
 DO_ALERT = False
 
+VOCAB_SIZE = 103168
 SEQ_LEN = 32768
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
+NUM_KV_ATTENTION_HEAD = 32
 MLP_RATIO = 8 / 3
 NUM_LAYER = 2
-VOCAB_SIZE = 103168
+
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
 SAVE_CKPT_FOLDER = "local:llm_ckpts"
 LOAD_CKPT_FOLDER = "local:llm_ckpts/49"
-
-uly_sp=4
-ring_sp=2
 
 # boto3 Ckpt folder format:
 # import os
@@ -60,7 +60,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=50,
     pack_sample_into_one=True,
-    total_steps=50000,
+    total_steps=10,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -136,6 +136,7 @@ beta2_scheduler = dict(
 use_fp32_norm = False
 model = dict(
     checkpoint=True,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
+    num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     num_attention_heads=NUM_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
@@ -143,13 +144,13 @@ model = dict(
     parallel_output=True,
     hidden_size=HIDDEN_SIZE,
     num_layers=NUM_LAYER,
+    no_bias=True,
     mlp_ratio=MLP_RATIO,
     apply_post_layer_norm=False,
     dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
     norm_type="rmsnorm",
     layer_norm_epsilon=1e-5,
     use_flash_attn=True,
-    num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     # Whether the odd and even columns of the query and key in the model are normally interleaved.
     # If it's True, the model's odd and even columns are normally ordered; if it's False,
     # it means that the model has prematurely concatenated all odd columns and even columns in front
@@ -159,6 +160,7 @@ model = dict(
     # qk_interleaved = False: q[-1] = [q1,q3,q5,...,q2,q4,q6,...], k[-1] = [k1,k3,k5,...,k2,k4,k6,...]
     qk_interleaved=False,
 )
+
 """
 zero1 parallel (dict):
     1. size: int
@@ -183,12 +185,32 @@ weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
     3. memory_pool: bool, enable/disable memory pool, defaults to False.
+sequence_2D (dict):
+    1. enable: bool, whether enable the 2D sequence parallel or not.
+    2. head_size: int, the parallel degree of head parallelism (DeepSpeed Ulysses). 
+                  head_size * context_size should be equal tensor size.
+    3. context_size: int, the parallel degree of context parallelism.
+                  head_size * context_size should be equal tensor size.
+    4. window_size: int, the sliding window size in context parallelism.
+    5. device_placement_strategy: dict,
+        head_first: bool, if `True`, ranks of the same head parallel group are 
+                              given high priority for colocation on the same node;
+                              if `False`, ranks of the same context parallel group are
+                              given high priority for colocation on the same node;
+        interleaved: bool, if `head_first` is `False` and `window_size` > 1, this config could 
+                           interleaved the ranks in the same window to make full use of NIC as much as possible.
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=8, mode="isp"),
+    tensor=dict(size=64, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=8, overlap=False, memory_pool=False),
+    sequence_2D=dict(enable=True, 
+                     head_size=32, 
+                     context_size=2, 
+                     window_size=1,
+                     device_placement_strategy=dict(head_first=False,
+                                                    interleaved=True)),
 )
 
 cudnn_deterministic = False

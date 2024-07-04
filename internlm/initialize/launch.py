@@ -461,14 +461,33 @@ def args_sanity_check():
             -1,
             gpc.get_world_size(ParallelMode.DATA),
         ), "moe only support zero1, set zero1=dict(size=-1,...) can fix this"
-    
-    # ring attention head overlap
-    if  "ring_attn_overlap" not in gpc.config:
-        gpc.config._add_item("ring_attn_overlap", {'enable': False, 'head_chunks':1, 'window_size':1, 'comm': 'p2p_AG', 'interleaved': False, 'use_ulysses_low': True})
+
+    # sequence_2D
+    if "sequence_2D" not in gpc.config.parallel:
+        gpc.config.parallel._add_item(
+            "sequence_2D",
+            {
+                "enable": False,
+                "head_size": 1,
+                "context_size": 1,
+                "window_size": 1,
+                "device_placement_strategy": {"head_first": True, "interleaved": False},
+            },
+        )
     else:
-        if gpc.config.ring_attn_overlap.use_ulysses_low is True and gpc.config.uly_sp > 1:
-            assert gpc.config.ring_attn_overlap.interleaved is False, "when enable use_ulysses_low, it recommend that interleaved should be False."
-        assert gpc.config.ring_attn_overlap.comm in ('p2p_AG', 'double_ring'), "the comm should p2p_AG or double_ring."
+        if gpc.config.parallel.sequence_2D.enable is True:
+            parallel_cfg = gpc.config.parallel
+            assert (
+                parallel_cfg.sequence_2D.head_size * parallel_cfg.sequence_2D.context_size == parallel_cfg.tensor.size
+            ), "the head_size * context_size should be equal to the tensor size."
+
+            if (
+                parallel_cfg.sequence_2D.device_placement_strategy.head_first is True
+                and parallel_cfg.sequence_2D.head_size > 1
+            ):
+                assert (
+                    parallel_cfg.sequence_2D.device_placement_strategy.interleaved is False
+                ), "if head_first is True, the interleaved should be False."
 
 
 def launch(

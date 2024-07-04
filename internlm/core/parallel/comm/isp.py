@@ -14,7 +14,6 @@ from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.context.globals import PROCESS_GROUP
 from internlm.core.naive_amp import unwrap_naive_amp
 from internlm.core.parallel.comm.utils import (
     DUMMY_HANDLE_CONST,
@@ -632,7 +631,7 @@ all2all_time_backward_first = []
 all2all_time_backward_second = []
 
 
-# adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
+# adapted from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 class _SeqAllToAll(torch.autograd.Function):
     "sequence alltoall function"
 
@@ -663,6 +662,9 @@ class _SeqAllToAll(torch.autograd.Function):
             return torch.cat(output_list, dim=gather_idx).contiguous()
 
         outputs = []
+        
+        assert len(scatter_idx) == len(gather_idx)
+        assert len(gather_idx) == len(input_)
 
         for i in range(len(input_)):
 
@@ -692,55 +694,13 @@ class _SeqAllToAll(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grad_output: torch.Tensor) -> Tuple[None, torch.Tensor, None, None]:
-        import time
 
-        # torch.distributed.barrier()
-        # torch.cuda.synchronize()
-        # start_time = time.time()
         if dist.get_world_size(ctx.group) <= 1:
-            # import pdb; pdb.set_trace()
             return (None, None, None, *grad_output)
-        if len(grad_output) == 1:
-            res = _SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output)
-
-            # torch.distributed.barrier()
-            # torch.cuda.synchronize()
-            # end_time = time.time()
-            # if gpc.step_id >= 5:
-            #     all2all_time_backward_first.append((end_time - start_time) * 1000)
-            return (None, None, None, res)
-            # return (None, None, None, _SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output))
-
         res = _SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output)
-        # torch.distributed.barrier()
-        # torch.cuda.synchronize()
-        # end_time = time.time()
-        # if gpc.step_id >= 5:
-        #     all2all_time_backward_second.append((end_time - start_time) * 1000)
+        if len(grad_output) == 1:
+            return (None, None, None, res)
 
-        # if gpc.step_id == 9:
-        #     if len(all2all_time_backward_first) == 100 and len(all2all_time_backward_second) == 100:
-        #         all2all_time_backward = [
-        #             a + b for a, b in zip(all2all_time_backward_first, all2all_time_backward_second)
-        #         ]
-        #         if gpc.get_global_rank() == 0:
-        #             print(f"origin all2all backward time = {all2all_time_backward}", flush=True)
-
-        #         all2all_time_backward.sort()
-
-        #         all2all_time_backward = all2all_time_backward[0:-5]
-        #         import numpy as np
-
-        #         all2all_time_avg = np.mean(all2all_time_backward)
-
-        #         all2all_time_std = np.std(all2all_time_backward)
-
-        #         if gpc.get_global_rank() == 0:
-        #             print(f"all2all backward time = {all2all_time_backward}", flush=True)
-        #             print(f"average all2all backward time = {all2all_time_avg}", flush=True)
-        #             print(f"std all2all backward time = {all2all_time_std}", flush=True)
-
-        # return (None, None, None, *_SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output))
         return (None, None, None, *res)
 
 
@@ -761,7 +721,7 @@ class DistributedAttention(nn.Module):
         super().__init__()
         self.local_attn = local_attention
         self.spg = sequence_process_group
-        self.sp_size = gpc.config.parallel["tensor"].get("size")
+        self.sp_size = dist.get_world_size(self.spg)
 
     @params_dispatch_with_condition(condition=check_attention_argument)
     def forward(self) -> torch.Tensor:
@@ -782,13 +742,13 @@ class DistributedAttention(nn.Module):
 
         # qkv shape: [1, packlen, 3, n_head, head_dim] or [batch, seqlen, 3, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
-        qkv = _SeqAllToAll.apply(self.spg, qkv, 3, 1)
+        qkv = _SeqAllToAll.apply(self.spg, 3, 1, qkv)
 
         context = self.local_attn(qkv, **kwargs)
 
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
-        context = _SeqAllToAll.apply(self.spg, context, 1, 2)
+        context = _SeqAllToAll.apply(self.spg, 1, 2, context)
 
         return context
 
@@ -808,13 +768,6 @@ class DistributedAttention(nn.Module):
         # q shpae: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
 
-        if gpc.config.uly_sp != dist.get_world_size(self.spg):
-            uly_pg = PROCESS_GROUP.ULYSSES_PG
-            self.spg = uly_pg
-            self.sp_size = dist.get_world_size(self.spg)
-
-        import time
-
         # kv shape: [1, packlen, 2, n_head, head_dim] or [batch, seqlen, 2, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
         num_head_kv = kv.shape[3]
@@ -824,74 +777,13 @@ class DistributedAttention(nn.Module):
             assert self.sp_size % num_head_kv == 0, "the num_head_kv should be divided by sp size."
             kv = expandKVPacked(kv, self.sp_size // num_head_kv, 3)
 
-        # torch.distributed.barrier()
-        # torch.cuda.synchronize()
-        # start_time = time.time()
         q, kv = _SeqAllToAll.apply(self.spg, [2, 3], [1, 1], q, kv)
-        # torch.distributed.barrier()
-        # torch.cuda.synchronize()
-        # end_time = time.time()
-
-        # first_all2all = (end_time - start_time) * 1000
-
-        # torch.distributed.barrier()
+        
         torch.cuda.synchronize()
-        # start_time = time.time()
         context = self.local_attn(q, kv, **kwargs)
-        # torch.distributed.barrier()
         torch.cuda.synchronize()
-        # end_time = time.time()
 
-        # attn = (end_time - start_time) * 1000
-
-        # torch.distributed.barrier()
-        # torch.cuda.synchronize()
-        # start_time = time.time()
         context = _SeqAllToAll.apply(self.spg, 1, 2, context)
-        # torch.distributed.barrier()
-        # torch.cuda.synchronize()
-        # end_time = time.time()
-
-        # second_all2all = (end_time - start_time) * 1000
-
-        # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
-        # scatter in seqlen(packlen) and gather in n_head
-
-        # if gpc.is_forward is True:
-
-        #     global all2all_time
-        #     global overall_time
-
-        #     if gpc.step_id >= 5:
-        #         all2all_time.append(first_all2all + second_all2all)
-        #         overall_time.append(first_all2all + second_all2all + attn)
-
-        #     if gpc.step_id == 9:
-        #         if len(all2all_time) == 100:
-        #             if gpc.get_global_rank() == 0:
-        #                 print(f"origin all2all time = {all2all_time}", flush=True)
-        #                 print(f"origin overall time = {overall_time}", flush=True)
-
-        #             all2all_time.sort()
-        #             overall_time.sort()
-
-        #             all2all_time = all2all_time[0:-5]
-        #             overall_time = overall_time[0:-5]
-        #             import numpy as np
-
-        #             all2all_time_avg = np.mean(all2all_time)
-        #             overall_time_avg = np.mean(overall_time)
-
-        #             all2all_time_std = np.std(all2all_time)
-        #             overall_time_std = np.std(overall_time)
-
-        #             if gpc.get_global_rank() == 0:
-        #                 print(f"all2all time = {all2all_time}", flush=True)
-        #                 print(f"overall time = {overall_time}", flush=True)
-        #                 print(f"average all2all time = {all2all_time_avg}", flush=True)
-        #                 print(f"average overall time = {overall_time_avg}", flush=True)
-        #                 print(f"std all2all time = {all2all_time_std}", flush=True)
-        #                 print(f"std overall time = {overall_time_std}", flush=True)
 
         return context
 
@@ -912,20 +804,19 @@ class DistributedAttention(nn.Module):
         # self._scatter_gather_idx["q"] = [1, 0]  # q/k/v shape: [sequence, head, head_dim]
         # q shpae: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
-        # import pdb;pdb.set_trace()
-        q = _SeqAllToAll.apply(self.spg, q, 2, 1)
+        q = _SeqAllToAll.apply(self.spg, 2, 1, q)
         # k shpae: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
-        k = _SeqAllToAll.apply(self.spg, k, 2, 1)
+        k = _SeqAllToAll.apply(self.spg, 2, 1, k)
         # v shpae: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
-        v = _SeqAllToAll.apply(self.spg, v, 2, 1)
+        v = _SeqAllToAll.apply(self.spg, 2, 1, v)
 
         context = self.local_attn(q, k, v, **kwargs)
 
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
-        context = _SeqAllToAll.apply(self.spg, context, 1, 2)
+        context = _SeqAllToAll.apply(self.spg, 1, 2, context)
 
         return context
 
@@ -942,9 +833,13 @@ def auto_wrap_distributed_attention(cls: nn.Module) -> Callable[[bool, Any, floa
         if gpc.config.parallel["tensor"].get("mode", "mtp") != "isp":
             return local_attn_cls(causal, softmax_scale, attention_dropout)
         else:
+            if gpc.config.parallel.sequence_2D.enable is True:
+                spg = gpc.get_group(ParallelMode.HEAD)
+            else:
+                spg = gpc.get_group(ParallelMode.TENSOR)
             return DistributedAttention(
                 local_attention=local_attn_cls(causal, softmax_scale, attention_dropout, layer_idx),
-                sequence_process_group=gpc.get_group(ParallelMode.TENSOR),
+                sequence_process_group=spg,
             )
 
     return partial(_attetion_constructor, local_attn_cls=cls)
