@@ -21,7 +21,7 @@ except (ModuleNotFoundError, ImportError):
     apex_rmsnorm_impl = False
 
 try:
-    from deeplink_ext.internevo_ops import MixedFusedRMSNorm
+    from deeplink_ext.internevo_ops import MixedFusedRMSNormFunction
 
     deeplink_rmsnorm_impl = True
 except (ModuleNotFoundError, ImportError):
@@ -105,11 +105,38 @@ class _RMSNormNPU(torch.nn.Module):
     def extra_repr(self):
         return f"{self.normalized_shape}, eps={self.eps}, ".format(**self.__dict__)
 
+class _RMSNormDIPU(torch.nn.Module):
+    """A custom DIPU module for MixedFusedRMSNorm."""
+
+    def __init__(self, normalized_shape, eps=1e-5):
+        super().__init__()
+
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = torch.Size(normalized_shape)
+        self.eps = eps
+        self.weight = Parameter(torch.empty(*normalized_shape))
+        self.reset_parameters()
+
+    def forward(self, _input: torch.Tensor):
+        return MixedFusedRMSNormFunction.apply(
+            _input,
+            self.weight,
+            self.eps,
+            self.normalized_shape,
+        )
+
+    def reset_parameters(self):
+        init.ones_(self.weight)
+
+    def extra_repr(self):
+        return f"{self.normalized_shape}, eps={self.eps}, ".format(**self.__dict__)
+
 
 # TODO: Support deeplink in a more unified manner
 backend = internlm_accelerator.get_accelerator_backend()
 if backend == AcceleratorType.DIPU and deeplink_rmsnorm_impl:
-    RMSNorm = MixedFusedRMSNorm
+    RMSNorm = _RMSNormDIPU
 elif backend == AcceleratorType.NPU and torchnpu_rmsnorm_impl:
     RMSNorm = _RMSNormNPU
 else:
