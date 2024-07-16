@@ -23,7 +23,7 @@ except (ModuleNotFoundError, ImportError):
     flash_rotary_impl = False
 
 try:
-    from deeplink_ext.internlm_ops import ApplyRotaryEmb as DeeplinkApplyRotaryEmb
+    from deeplink_ext.internevo_ops import ApplyRotaryEmb as DeeplinkApplyRotaryEmb
 
     deeplink_rotary_impl = True
 except (ModuleNotFoundError, ImportError):
@@ -297,8 +297,7 @@ def apply_rotary_emb(
     # TODO: Support deeplink in a more unified manner
     use_fused_rope = gpc.config.model.get("use_fused_rope", True)
     if internlm_accelerator.get_accelerator_backend() == AcceleratorType.DIPU:
-        # TODO: to support in_place argument
-        return DeeplinkApplyRotaryEmb.apply(x, cos, sin, interleaved, use_fused_rope)
+        return DeeplinkApplyRotaryEmb.apply(x, cos, sin, interleaved, in_place)
     if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
         return rotary_emb_in_rotate_half_style(x, cos, sin, interleaved, use_fused_rope)
     else:
