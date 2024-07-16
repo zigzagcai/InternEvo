@@ -9,6 +9,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import partition_uniform
 from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load
+from transformers import AutoModelForCausalLM
 
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
@@ -304,8 +305,22 @@ def load_internlm_with_dynamic_parallel_size(folder, model):
         )
 
 
+def load_hf_model_pretrained_weights(folder, model):
+    """NOTE: when loading huggingface's model pretrained weights, you should set `adapt_hf=True` in your config."""
+    assert folder is not None, "Please specify the folder of the pretrained model"
+    if gpc.is_rank_for_log():
+        logger.info(f"Loading pretrained model from {folder}")
+
+    pretrained_model = AutoModelForCausalLM.from_pretrained(folder, trust_remote_code=True)
+    model.load_state_dict(pretrained_model.state_dict(), strict=False)
+
+    if gpc.is_rank_for_log():
+        logger.info("Pretrained weights loaded successfully")
+
+
 LOAD_FUNC_DICT = {
     "llama": load_llama_pretrained_weights,
     "hf_llama": load_hf_llama_pretrained_weights,
     "internlm_test": load_internlm_with_dynamic_parallel_size,
+    "hf_model": load_hf_model_pretrained_weights,
 }
