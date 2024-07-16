@@ -33,10 +33,24 @@ except (ModuleNotFoundError, ImportError):
     is_torch_npu = False
 
 try:
-    # TODO: add support of deeplink
-    from deeplink_ext.internevo_ops import FlashCrossAttention, FlashSelfAttention
-
-    del FlashCrossAttention, FlashSelfAttention
+    from deeplink_ext.internevo_ops import (
+        flash_attn_func as _deeplink_fixedlen_qkvsplited_func,
+    )
+    from deeplink_ext.internevo_ops import (
+        flash_attn_kvpacked_func as _deeplink_fixedlen_kvpacked_func,
+    )
+    from deeplink_ext.internevo_ops import (
+        flash_attn_qkvpacked_func as _deeplink_fixedlen_qkvpacked_func,
+    )
+    from deeplink_ext.internevo_ops import (
+        flash_attn_varlen_func as _deeplink_varlen_qkvsplited_func,
+    )
+    from deeplink_ext.internevo_ops import (
+        flash_attn_varlen_kvpacked_func as _deeplink_varlen_kvpacked_func,
+    )
+    from deeplink_ext.internevo_ops import (
+        flash_attn_varlen_qkvpacked_func as _deeplink_varlen_qkvpacked_func,
+    )
 
     deeplink_flash_attn_impl = True
 except (ModuleNotFoundError, ImportError):
@@ -304,34 +318,107 @@ def _npu_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p: fl
 # deeplink flash attention operators
 
 
-def _deeplink_varlen_qkvpacked_attn(*args, **kwargs):
-    # TODO: support deeplink version flash attention
-    _nyi_attn("_deeplink_varlen_qkvpacked_attn", *args, **kwargs)
+def _deeplink_varlen_qkvpacked_attn(
+    qkv: torch.Tensor, cu_seqlens, max_seqlen, dropout_p, softmax_scale=None, causal=False
+):
+    # compatible data format: [1, packelen, 3, n_head, headim]
+    qkv = qkv.squeeze(dim=0)
+
+    # input_idxs: 0: qkv
+    output = _flash_float32_compatibility_wrapper(
+        (0), _deeplink_varlen_qkvpacked_func, qkv, cu_seqlens, max_seqlen, dropout_p, softmax_scale, causal
+    )
+
+    return output.unsqueeze(dim=0)
 
 
-def _deeplink_fixedlne_qkvpacked_attn(*args, **kwargs):
-    # TODO: support deeplink version flash attention
-    _nyi_attn("_deeplink_fixedlne_qkvpacked_attn", *args, **kwargs)
+def _deeplink_fixedlen_qkvpacked_attn(qkv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False):
+    # input_idxs: 0: qkv
+    return _flash_float32_compatibility_wrapper(
+        (0), _deeplink_fixedlen_qkvpacked_func, qkv, dropout_p, softmax_scale, causal
+    )
 
 
-def _deeplink_varlen_kvpacked_attn(*args, **kwargs):
-    # TODO: support deeplink version flash attention
-    _nyi_attn("_deeplink_varlen_kvpacked_attn", *args, **kwargs)
+def _deeplink_varlen_kvpacked_attn(
+    q: torch.Tensor,
+    kv: torch.Tensor,
+    cu_seqlens_q,
+    cu_seqlens_k,
+    max_seqlen_q,
+    max_seqlen_k,
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=False,
+):
+    # compatible data format: [1, packelen, 3, n_head, headim]
+    q, kv = q.squeeze(dim=0), kv.squeeze(dim=0)
+
+    # input_idxs: 0: q, 1: kv
+    output = _flash_float32_compatibility_wrapper(
+        (0, 1),
+        _deeplink_varlen_kvpacked_func,
+        q,
+        kv,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        max_seqlen_q,
+        max_seqlen_k,
+        dropout_p,
+        softmax_scale,
+        causal,
+    )
+
+    return output.unsqueeze(dim=0)
 
 
-def _deeplink_fixedlen_kvpacked_attn(*args, **kwargs):
-    # TODO: support deeplink version flash attention
-    _nyi_attn("_deeplink_fixedlen_kvpacked_attn", *args, **kwargs)
+def _deeplink_fixedlen_kvpacked_attn(
+    q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False
+):
+    # input_idxs: 0: q, 1: kv
+    return _flash_float32_compatibility_wrapper(
+        (0, 1), _deeplink_fixedlen_kvpacked_func, q, kv, dropout_p, softmax_scale, causal
+    )
 
 
-def _deeplink_varlen_qkvsplited_attn(*args, **kwargs):
-    # TODO: support deeplink version flash attention
-    _nyi_attn("_deeplink_varlen_qkvsplited_attn", *args, **kwargs)
+def _deeplink_varlen_qkvsplited_attn(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    cu_seqlens_q,
+    cu_seqlens_k,
+    max_seqlen_q,
+    max_seqlen_k,
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=False,
+):
+    # compatible data format: [1, packelen, 3, n_head, headim]
+    q, k, v = q.squeeze(dim=0), k.squeeze(dim=0), v.squeeze(dim=0)
+
+    # input_idxs: 0: q, 1: k, 2: v
+    output = _flash_float32_compatibility_wrapper(
+        (0, 1, 2),
+        _deeplink_varlen_qkvsplited_func,
+        q,
+        k,
+        v,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        max_seqlen_q,
+        max_seqlen_k,
+        dropout_p,
+        softmax_scale,
+        causal,
+    )
+
+    return output.unsqueeze(dim=0)
 
 
-def _deeplink_fixedlen_qkvsplited_attn(*args, **kwargs):
-    # TODO: support deeplink version flash attention
-    _nyi_attn("_deeplink_fixedlen_qkvsplited_attn", *args, **kwargs)
+def _deeplink_fixedlen_qkvsplited_attn(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False):
+    # input_idxs: 0: q, 1: k, 2: v
+    return _flash_float32_compatibility_wrapper(
+        (0, 1, 2), _deeplink_fixedlen_qkvsplited_func, q, k, v, dropout_p, softmax_scale, causal
+    )
 
 
 # torch attention operators
@@ -465,7 +552,7 @@ class SelfAttention(nn.Module):
             elif device_backend == AcceleratorType.NPU and is_torch_npu:
                 return _npu_fixedlen_qkvpacked_attn(qkv, self.dropout.p, softmax_scale, causal)
             elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_fixedlne_qkvpacked_attn(qkv, self.dropout.p, softmax_scale, causal)
+                return _deeplink_fixedlen_qkvpacked_attn(qkv, self.dropout.p, softmax_scale, causal)
             else:
                 raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
         else:

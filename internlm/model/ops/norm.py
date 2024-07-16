@@ -105,6 +105,7 @@ class _RMSNormNPU(torch.nn.Module):
     def extra_repr(self):
         return f"{self.normalized_shape}, eps={self.eps}, ".format(**self.__dict__)
 
+
 class _RMSNormDIPU(torch.nn.Module):
     """A custom DIPU module for MixedFusedRMSNorm."""
 
