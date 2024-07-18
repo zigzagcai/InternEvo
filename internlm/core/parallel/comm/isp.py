@@ -900,7 +900,12 @@ def auto_wrap_distributed_attention(cls: nn.Module) -> Callable[[bool, Any, floa
     def _attetion_constructor(
         local_attn_cls: type, causal=False, softmax_scale=None, attention_dropout=0.0
     ) -> nn.Module:
-        if gpc.config.parallel["tensor"].get("mode", "mtp") != "isp":
+        try:
+            tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
+        except AttributeError:
+            tp_mode = "mtp"
+
+        if tp_mode != "isp":
             return local_attn_cls(causal, softmax_scale, attention_dropout)
         else:
             return DistributedAttention(
