@@ -123,9 +123,15 @@ def exam_pipeline_parallel(args):
     # pp forward and backward
     output_list = []
     for _ in range(10):
-        output, _, loss = scheduler.forward_backward_step(
-            engine, input_list, forward_only=False, return_loss=True, return_output_label=True
+        res = scheduler.forward_backward_step(
+            engine,
+            input_list,
+            forward_only=False,
+            return_loss=True,
+            return_output_label=True,
         )
+        output = res[0]
+        loss = res[2]
         output_list.append(output)
 
     # engine.step()

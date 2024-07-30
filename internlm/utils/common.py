@@ -5,6 +5,7 @@ import bisect
 import inspect
 import os
 import random
+import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from datetime import datetime
@@ -53,7 +54,9 @@ def move_to_device(data):
         data = [move_to_device(x) for x in data]
     elif isinstance(data, dict):
         data = {k: move_to_device(v) for k, v in data.items()}
-
+    else:
+        # other types like scalar, other params, return the value itself.
+        return data
     return data
 
 
@@ -167,18 +170,27 @@ class BatchSkipper:
 
 class SingletonMeta(type):
     """
-    Singleton Meta.
+    Thread-safe Singleton Meta with double-checked locking.
+    Reference: https://en.wikipedia.org/wiki/Double-checked_locking
     """
 
     _instances = {}
+    _lock = threading.Lock()
 
     def __call__(cls, *args, **kwargs):
+        # First check (without locking) for performance reasons
         if cls not in cls._instances:
-            cls._instances[cls] = super().__call__(*args, **kwargs)
+            # Acquire a lock before proceeding to the second check
+            with cls._lock:
+                # Second check with lock held to ensure thread safety
+                if cls not in cls._instances:
+                    instance = super().__call__(*args, **kwargs)
+                    cls._instances[cls] = instance
         else:
             assert (
                 len(args) == 0 and len(kwargs) == 0
-            ), f"{cls.__name__} is a singleton class and a instance has been created."
+            ), f"{cls.__name__} is a singleton class and an instance has been created."
+
         return cls._instances[cls]
 
 
@@ -268,6 +280,10 @@ def enable_pytorch_expandable_segments():
         internlm_accelerator.memory._set_allocator_settings(_alloc_conf)
     else:
         logger.warning("To support the 'expandable_segments' configuration, please upgrade torch to version 2.1.0.")
+
+
+def check_cuda_env():
+    assert os.getenv("CUDA_DEVICE_MAX_CONNECTIONS") is not None, "Env var CUDA_DEVICE_MAX_CONNECTIONS should be set."
 
 
 class DummyProfile:

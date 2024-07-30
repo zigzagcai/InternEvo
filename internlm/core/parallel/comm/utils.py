@@ -226,6 +226,39 @@ def reduce_scatter_raw(
     return output, handle
 
 
+def apply_to_tensors_only(function, value):
+    """
+    Apply `function` to every Tensor in `value`.
+
+    Args:
+        functional: The function class to apply.
+        value (Any): Target object to apply `function` to.
+
+    Returns:
+        Any: Output of `function`.
+    """
+    if isinstance(value, (tuple, list)):
+        touched_outputs = []
+        for elem in value:
+            touched_output = apply_to_tensors_only(function, elem)
+            touched_outputs.append(touched_output)
+
+        return value.__class__(touched_outputs)
+    elif isinstance(value, dict):
+        # apply inplace to avoid recreating dict inherited objects
+        for key in value.keys():
+            value[key] = apply_to_tensors_only(function, value[key])
+        return value
+
+    elif isinstance(value, torch.Tensor):
+        # this also applies to torch.Tensor's subclasses like torch.nn.parameter.Parameter
+        touched_output = function(value)
+
+        return touched_output
+    else:
+        return value
+
+
 class _ExpandKVPackedFunction(torch.autograd.Function):
     """
     Copy the KV head repeat times to support sequence parallel.
@@ -270,7 +303,6 @@ class _ExpandKVPackedFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-
         """
         For backward, we sum the copy head inside a query group.
         """

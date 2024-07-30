@@ -455,7 +455,7 @@ class ScaleColumnParallelLinear(ParallelLinearWithCommExt):
         if norm_head:
             logger.info("Notice that norm head is enabled to normalize head weight.")
 
-        parallel_mode = get_tensor_split_parallel_mode(is_head=True)
+        parallel_mode = get_tensor_split_parallel_mode()
         super().__init__(
             in_features, out_features, parallel_mode, bias=bias, device=device, dtype=dtype, split_mode="column"
         )
@@ -492,7 +492,7 @@ class ScaleColumnParallelLinear(ParallelLinearWithCommExt):
 
         return fused_dense_func(
             input,
-            self.weight,
+            weight,
             communicator=self._communicator,
             module=self,
             bias=self.bias,
@@ -526,9 +526,10 @@ class RewardModelLinear(ScaleColumnParallelLinear):
 
         # broadcast parameters for reward model head layer.
         parallel_mode = get_head_parallel_mode()
-        dist.broadcast(self.weight, gpc.get_ranks_in_group(parallel_mode)[0])
+        process_group = gpc.get_group(parallel_mode)
+        dist.broadcast(self.weight, gpc.get_ranks_in_group(parallel_mode)[0], process_group)
         if bias:
-            dist.broadcast(self.bias, gpc.get_ranks_in_group(parallel_mode)[0])
+            dist.broadcast(self.bias, gpc.get_ranks_in_group(parallel_mode)[0], process_group)
 
 
 def new_linear(
