@@ -4,7 +4,6 @@ on:
     branches:
       - "main"
       - "develop"
-      - "feat/loong-train"
     paths-ignore:
       - "docs/**"
       - "**.md"

@@ -3,7 +3,6 @@ from flash_attn.flash_attn_interface import _flash_attn_backward, _flash_attn_fo
 import torch.distributed
 
 from internlm.core.context.parallel_context import global_context as gpc
-from internlm.core.parallel.comm.utils import all_gather_raw, reduce_scatter_raw
 
 from .utils import RingComm, update_out_and_lse
 
@@ -138,7 +137,6 @@ def zigzag_double_ring_flash_attn_forward(
                     v = next_v
         return out, lse
 
-
     window_size = gpc.config.parallel.sequence_2D.get("window_size", 1)
     window_num = ring_comm.world_size // window_size
 
@@ -160,9 +158,7 @@ def zigzag_double_ring_flash_attn_forward(
         if j == 0:
             out, lse = _first_window_forward(q, local_k, local_v)
         else:
-            out, lse = _other_window_forward(
-                out, lse, q, local_k, local_v, window_num_idx=j
-            )
+            out, lse = _other_window_forward(out, lse, q, local_k, local_v, window_num_idx=j)
 
     lse = lse.squeeze(dim=-1).transpose(1, 2)
     out = out.to(q.dtype)
@@ -576,7 +572,7 @@ def zigzag_ring_flash_attn_qkvpacked_func_with_sliding_window(
 ):
     if gpc.get_global_rank() == 0:
         print(f"====running QKV PACKED====")
-            
+
     return ZigZagRingFlashAttnFunc.apply(
         qkv[:, :, 0],
         qkv[:, :, 1],
@@ -595,6 +591,7 @@ def zigzag_ring_flash_attn_qkvpacked_func_with_sliding_window(
         dkv_intra_window_group,
         layer_idx,
     )
+
 
 def zigzag_ring_flash_attn_qkvsplited_func_with_sliding_window(
     q,
@@ -617,7 +614,7 @@ def zigzag_ring_flash_attn_qkvsplited_func_with_sliding_window(
 
     if gpc.get_global_rank() == 0:
         print(f"====running QKV SPLITED====")
-        
+
     return ZigZagRingFlashAttnFunc.apply(
         q,
         k,

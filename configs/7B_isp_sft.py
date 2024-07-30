@@ -3,12 +3,12 @@ model_type = "INTERNLM2_PUBLIC"
 DO_ALERT = False
 
 VOCAB_SIZE = 103168
-SEQ_LEN = 32768
+SEQ_LEN = 16384
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
-NUM_KV_ATTENTION_HEAD = 32
+NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 8 / 3
-NUM_LAYER = 2
+NUM_LAYER = 32
 
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -52,14 +52,14 @@ VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=1,
+    micro_num=4,
     # packed_length = micro_bsz * SEQ_LEN
-    micro_bsz=1,
+    micro_bsz=2,
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
     valid_every=50,
-    pack_sample_into_one=True,
+    pack_sample_into_one=False,
     total_steps=10,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
@@ -74,7 +74,7 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
-    use_packed_dataset=False,
+    # use_packed_dataset=False,
 )
 
 grad_scaler = dict(
@@ -202,15 +202,16 @@ sequence_2D (dict):
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=64, mode="isp"),
+    tensor=dict(size=8, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=8, overlap=False, memory_pool=False),
-    sequence_2D=dict(enable=True, 
-                     head_size=32, 
-                     context_size=2, 
-                     window_size=1,
-                     device_placement_strategy=dict(head_first=False,
-                                                    interleaved=True)),
+    weight=dict(size=8, overlap=True, memory_pool=False),
+    sequence_2D=dict(
+        enable=False,
+        head_size=2,
+        context_size=4,
+        window_size=1,
+        device_placement_strategy=dict(head_first=True, interleaved=False),
+    ),
 )
 
 cudnn_deterministic = False

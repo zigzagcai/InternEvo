@@ -19,21 +19,9 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.comm.isp import auto_wrap_distributed_attention
 from internlm.model.ops.ring_flash_attn import (
-    ring_flash_attn_func,
-    ring_flash_attn_kvpacked_func,
-    ring_flash_attn_qkvpacked_func,
-    ring_flash_attn_varlen_func,
-    ring_flash_attn_varlen_kvpacked_func,
-    ring_flash_attn_varlen_qkvpacked_func,
-    zigzag_ring_flash_attn_func,
-    zigzag_ring_flash_attn_kvpacked_func,
     zigzag_ring_flash_attn_kvpacked_func_with_sliding_window,
     zigzag_ring_flash_attn_qkvpacked_func_with_sliding_window,
     zigzag_ring_flash_attn_qkvsplited_func_with_sliding_window,
-    zigzag_ring_flash_attn_qkvpacked_func,
-    zigzag_ring_flash_attn_varlen_func,
-    zigzag_ring_flash_attn_varlen_kvpacked_func,
-    zigzag_ring_flash_attn_varlen_qkvpacked_func,
 )
 from internlm.model.ops.utils import pack_output_after_attn, unpack_qkv_before_attn
 from internlm.utils.common import get_current_device
