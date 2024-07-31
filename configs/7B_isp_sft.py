@@ -1,5 +1,5 @@
 JOB_NAME = "7b_train"
-model_type = "INTERNLM2_PUBLIC"
+# model_type = "INTERNLM2_PUBLIC"
 DO_ALERT = False
 
 VOCAB_SIZE = 103168
@@ -47,6 +47,7 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
+# TRAIN_FOLDER = "/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/"
 TRAIN_FOLDER = None  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
@@ -60,7 +61,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=50,
     pack_sample_into_one=False,
-    total_steps=10,
+    total_steps=50000,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -135,8 +136,7 @@ beta2_scheduler = dict(
 
 use_fp32_norm = False
 model = dict(
-    checkpoint=True,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
-    num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
+    checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
@@ -144,13 +144,14 @@ model = dict(
     parallel_output=True,
     hidden_size=HIDDEN_SIZE,
     num_layers=NUM_LAYER,
-    no_bias=True,
+    # no_bias=True,
     mlp_ratio=MLP_RATIO,
     apply_post_layer_norm=False,
     dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
     norm_type="rmsnorm",
     layer_norm_epsilon=1e-5,
     use_flash_attn=True,
+    num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     # Whether the odd and even columns of the query and key in the model are normally interleaved.
     # If it's True, the model's odd and even columns are normally ordered; if it's False,
     # it means that the model has prematurely concatenated all odd columns and even columns in front
@@ -202,9 +203,9 @@ sequence_2D (dict):
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=8, mode="isp"),
+    tensor=dict(size=2, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=8, overlap=True, memory_pool=False),
+    weight=dict(size=4, overlap=True, memory_pool=False),
     sequence_2D=dict(
         enable=False,
         head_size=2,
