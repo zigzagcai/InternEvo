@@ -501,6 +501,10 @@ def args_sanity_check():
                     parallel_cfg.sequence_2D.device_placement_strategy.interleaved is False
                 ), "if head_first is True, the interleaved should be False."
 
+            assert (
+                gpc.config.data.use_packed_dataset is False
+            ), "only unpacked data is supported when using 2D sequence parallel."
+
 
 def launch(
     config: Union[str, Path, Config, Dict],
