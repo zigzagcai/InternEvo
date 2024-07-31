@@ -755,12 +755,6 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         pass
 
 
-all2all_time = []
-overall_time = []  # all2all + attention
-all2all_time_backward_first = []
-all2all_time_backward_second = []
-
-
 # adapted from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 class _SeqAllToAll(torch.autograd.Function):
     "sequence alltoall function"

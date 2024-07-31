@@ -1,3 +1,5 @@
+# Adapted from https://github.com/zhuzilin/ring-flash-attention/blob/main/ring_flash_attn/utils.py
+
 from typing import Optional, Tuple
 
 import torch

@@ -1,3 +1,5 @@
+# Adapted from https://github.com/zhuzilin/ring-flash-attention/blob/main/ring_flash_attn/zigzag_ring_flash_attn.py
+
 import torch
 import torch.distributed
 from flash_attn.flash_attn_interface import _flash_attn_backward, _flash_attn_forward

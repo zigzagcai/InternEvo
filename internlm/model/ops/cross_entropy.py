@@ -28,6 +28,8 @@ logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
 
 
+# Adapted from https://github.com/microsoft/Megatron-DeepSpeed/blob/main/megatron/core/ \
+# sequence_parallel/cross_entropy.py
 class _VocabSequenceParallelCrossEntropy(torch.autograd.Function):
     """
     Cross Entropy module for isp.
