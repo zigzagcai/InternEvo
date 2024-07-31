@@ -46,6 +46,10 @@ def update_out_and_lse(
 
 
 class RingComm:
+    """
+    P2P communicator for double ring zigzag flash attn.
+    """
+
     def __init__(self, process_group: dist.ProcessGroup):
         self._process_group = process_group
         self._ops = []

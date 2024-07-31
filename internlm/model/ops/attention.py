@@ -233,7 +233,7 @@ def _flash_fixedlen_qkvsplited_attn(q, k, v, dropout_p=0.0, softmax_scale=None, 
 
 def _sliding_window_zigzag_ring_flash_varlen_qkvpacked_attn(*args, **kwargs):
     # TODO: support varlen version zigzag flash attention
-    pass
+    _nyi_attn("_sliding_window_zigzag_ring_flash_varlen_qkvpacked_attn", *args, **kwargs)
 
 
 def _sliding_window_zigzag_ring_flash_fixedlen_qkvpacked_attn(
@@ -254,7 +254,7 @@ def _sliding_window_zigzag_ring_flash_fixedlen_qkvpacked_attn(
 
 def _sliding_window_zigzag_ring_flash_varlen_kvpacked_attn(*args, **kwargs):
     # TODO: support varlen version zigzag flash attention
-    pass
+    _nyi_attn("_sliding_window_zigzag_ring_flash_varlen_kvpacked_attn", *args, **kwargs)
 
 
 def _sliding_window_zigzag_ring_flash_fixedlen_kvpacked_attn(
@@ -280,7 +280,7 @@ def _sliding_window_zigzag_ring_flash_varlen_qkvsplited_attn(
     **kwargs,
 ):
     # TODO: support varlen version zigzag flash attention
-    pass
+    _nyi_attn("_sliding_window_zigzag_ring_flash_varlen_qkvsplited_attn", *args, **kwargs)
 
 
 def _sliding_window_zigzag_ring_flash_fixedlen_qkvsplited_attn(

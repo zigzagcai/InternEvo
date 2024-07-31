@@ -249,7 +249,7 @@ def zigzag_double_ring_flash_attn_backward(
                     softmax_lse1 = softmax_lse.chunk(2, dim=2)[1].contiguous()
                     backward(dout1, q1, k, v, out1, softmax_lse1, causal=False)
                     # always use the first half in dq_buffer.
-                    dq[:, block_seq_len:] += dq_buffer[:, :block_seq_len]
+                    dq[:, block_seq_len:] += dq_buffer[:, :block_seq_len]  # pylint: disable=E1137
 
                 local_dkv_comm.wait()
                 dk_comm_buffer, dv_comm_buffer = dk, dv
@@ -445,7 +445,6 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
         k = k.contiguous()
         v = v.contiguous()
 
-        global fa_output_mapping
         if gpc.is_forward is False and gpc.config.selective_checkpoint:
             assert layer_idx in fa_output_mapping
             out, softmax_lse = fa_output_mapping.pop(layer_idx)
@@ -530,7 +529,7 @@ def zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
     layer_idx=0,
 ):
     if gpc.get_global_rank() == 0:
-        print(f"====running KV PACKED====")
+        print("====running KV PACKED====")
     return ZigZagRingFlashAttnFunc.apply(
         q,
         kv[:, :, 0],
@@ -568,7 +567,7 @@ def zigzag_ring_flash_attn_qkvpacked_func_with_sliding_window(
     layer_idx=0,
 ):
     if gpc.get_global_rank() == 0:
-        print(f"====running QKV PACKED====")
+        print("====running QKV PACKED====")
 
     return ZigZagRingFlashAttnFunc.apply(
         qkv[:, :, 0],
@@ -610,7 +609,7 @@ def zigzag_ring_flash_attn_qkvsplited_func_with_sliding_window(
 ):
 
     if gpc.get_global_rank() == 0:
-        print(f"====running QKV SPLITED====")
+        print("====running QKV SPLITED====")
 
     return ZigZagRingFlashAttnFunc.apply(
         q,
