@@ -483,6 +483,18 @@ class ParallelContext(metaclass=SingletonMeta):
                 parallel_config._add_item("tensor", dict(size=1, mode="mtp"))
             if "weight" not in parallel_config:
                 parallel_config._add_item("weight", dict(size=1, overlap=False, memory_pool=False))
+            # set default value for sequence_2D
+            if "sequence_2D" not in parallel_config:
+                parallel_config._add_item(
+                    "sequence_2D",
+                    {
+                        "enable": False,
+                        "head_size": 1,
+                        "context_size": 1,
+                        "window_size": 1,
+                        "device_placement_strategy": {"head_first": True, "interleaved": False},
+                    },
+                )
 
             # get value from config
             self._set_parallel_size_from_config(parallel_config, "weight", "weight_parallel_size")

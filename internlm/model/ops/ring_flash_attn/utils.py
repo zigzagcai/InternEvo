@@ -45,26 +45,6 @@ def update_out_and_lse(
     return out, lse
 
 
-@torch.jit.script
-def flatten_varlen_lse(lse, cu_seqlens):
-    new_lse = []
-    for i in range(len(cu_seqlens) - 1):
-        start, end = cu_seqlens[i], cu_seqlens[i + 1]
-        new_lse.append(lse[i, :, : end - start])
-    return torch.cat(new_lse, dim=1)
-
-
-@torch.jit.script
-def unflatten_varlen_lse(lse, cu_seqlens, max_seqlen: int):
-    num_seq = len(cu_seqlens) - 1
-    num_head = lse.shape[-2]
-    new_lse = torch.empty((num_seq, max_seqlen, num_head, 1), dtype=torch.float32, device=lse.device)
-    for i in range(num_seq):
-        start, end = cu_seqlens[i], cu_seqlens[i + 1]
-        new_lse[i, : end - start] = lse[start:end]
-    return new_lse.squeeze(dim=-1).transpose(1, 2).contiguous()
-
-
 class RingComm:
     def __init__(self, process_group: dist.ProcessGroup):
         self._process_group = process_group
@@ -86,9 +66,6 @@ class RingComm:
             res = torch.empty_like(to_send)
         else:
             res = recv_tensor
-        # print(f':rankid:{dist.get_rank()}:::::to_send:{to_send.device}::res:{res.device}::self.send_rank{self.send_rank}::self.recv_rank:{self.recv_rank}::')
-
-        # print(f':rankid:{dist.get_rank()}:::to_send:{to_send.device}::send_rank:{self.send_rank}::res:{res.device}:recv_rank:{self.recv_rank}::::')
 
         send_op = dist.P2POp(dist.isend, to_send, self.send_rank, group=self._process_group)
         recv_op = dist.P2POp(dist.irecv, res, self.recv_rank, group=self._process_group)
@@ -106,57 +83,5 @@ class RingComm:
             raise RuntimeError("wait called before commit")
         for req in self._reqs:
             req.wait()
-        self._reqs = None
-        self._ops = []
-
-
-class ZigZagComm:
-    def __init__(self, process_group: dist.ProcessGroup):
-        self._process_group = process_group
-        self._ops = []
-        self.rank = dist.get_rank(self._process_group)
-        self.world_size = dist.get_world_size(self._process_group)
-        self._reqs = None
-
-        self.partner = self.world_size - self.rank - 1
-
-        self.send_rank = self.rank
-        self.recv_rank = self.partner
-
-        if process_group is not None:
-            self.send_rank = dist.get_global_rank(self._process_group, self.send_rank)
-            self.recv_rank = dist.get_global_rank(self._process_group, self.recv_rank)
-            # print(f'rank{dist.get_rank()}: send_rank:{self.send_rank},recv_rank:{self.recv_rank}', flush=True)
-
-    def send_recv(self, to_send: torch.Tensor, recv_tensor: Optional[torch.Tensor] = None) -> torch.Tensor:
-        if recv_tensor is None:
-            res = torch.empty_like(to_send)
-        else:
-            res = recv_tensor
-        # print(
-        #     f":rankid:{dist.get_rank()}:::::to_send:{to_send.shape},{to_send.dtype}::res:{res.shape},"
-        #     f"{res.dtype}::self.send_rank{self.send_rank}::self.recv_rank:{self.recv_rank}::",
-        #     flush=True,
-        # )
-
-        # to_send:6,send_rank:6,res:6,recv_rank:0
-        send_op = dist.P2POp(dist.isend, to_send, self.recv_rank, group=self._process_group)
-        recv_op = dist.P2POp(dist.irecv, res, self.recv_rank, group=self._process_group)
-
-        self._ops.append(send_op)
-        self._ops.append(recv_op)
-        return res
-
-    def commit(self):
-        if self._reqs is not None:
-            raise RuntimeError("commit called twice")
-        self._reqs = dist.batch_isend_irecv(self._ops)
-
-    def wait(self):
-        if self._reqs is None:
-            raise RuntimeError("wait called before commit")
-        for req in self._reqs:
-            req.wait()
-
         self._reqs = None
         self._ops = []

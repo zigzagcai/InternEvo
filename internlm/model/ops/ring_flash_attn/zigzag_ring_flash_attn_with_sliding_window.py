@@ -1,6 +1,6 @@
 import torch
-from flash_attn.flash_attn_interface import _flash_attn_backward, _flash_attn_forward
 import torch.distributed
+from flash_attn.flash_attn_interface import _flash_attn_backward, _flash_attn_forward
 
 from internlm.core.context.parallel_context import global_context as gpc
 
@@ -413,9 +413,6 @@ def zigzag_double_ring_flash_attn_backward(
     next_dv = next_dv.to(q.dtype)
 
     return dq, next_dk, next_dv
-
-
-attn_backward_time = []
 
 
 class ZigZagRingFlashAttnFunc(torch.autograd.Function):
