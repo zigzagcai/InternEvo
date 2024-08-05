@@ -7,6 +7,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import pipeline_parallel_sharding_wrapper
 from internlm.model.registry import hf_config_initializer, model_initializer
 from internlm.utils.common import get_current_device
+from internlm.utils.utils import ModelType
 
 
 def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module]]:
@@ -24,7 +25,7 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
     model_buidler = model_initializer.get_module(module_name=model_type)
 
     if not gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
-        if model_type == "hf":
+        if model_type == ModelType.HF.name:
             hf_config_builder = hf_config_initializer.get_module(module_name=model_type)
             config = hf_config_builder(return_dict=False)
             model = model_buidler(*args, config).to(kwargs["device"])
