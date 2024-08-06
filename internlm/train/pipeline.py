@@ -86,7 +86,7 @@ from internlm.utils.parallel import (
     sync_model_replica_param_group,
 )
 from internlm.utils.timeout import llm_timeout
-from internlm.utils.utils import DataType, ModelType, TensorParallelMode
+from internlm.utils.utils import TensorParallelMode
 
 try:
     import torch_npu
@@ -173,7 +173,7 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
 
     register_model_initializer()
 
-    model = create_model(model_type=gpc.config.model_type, **(gpc.config.model))
+    model = create_model(model_type=gpc.config.model_type)
 
     if post_process_func:
         post_process_func(pre_process_output)
@@ -464,8 +464,7 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
     if batch[0].get("type_ids", None) is not None:
         # if use_packed_dataset is False, we need to unpack type_ids
         if not gpc.config.data.use_packed_dataset:
-            if gpc.config.data.type != DataType.hf.name or gpc.config.model_type != ModelType.HF.name:
-                batch[0]["type_ids"] = unpack_type_ids(batch[0]["type_ids"], batch[0]["cu_seqlens"])
+            batch[0]["type_ids"] = unpack_type_ids(batch[0]["type_ids"], batch[0]["cu_seqlens"])
 
     return batch, train_iter
 
@@ -555,21 +554,10 @@ def record_current_batch_training_metrics(
 
         num_tokens_in_batch = batch[1].nelement()
         real_num_tokens = math.ceil(acc_perplex.pop("real_token_num") / gpc.get_world_size(ParallelMode.GLOBAL))
-        # TODO: check logic
-        if (
-            gpc.config.data.type == DataType.hf.name
-            and gpc.config.model_type == ModelType.HF.name
-            and not gpc.config.data.use_packed_dataset
-        ):
-            num_samples_in_batch = gpc.config.data.micro_bsz * gpc.config.data.micro_num
-            max_length_in_batch = batch[0]["attention_mask"].sum(dim=1).max().item()
-            max_samples_in_batch = gpc.config.data.micro_bsz
-            min_samples_in_batch = gpc.config.data.micro_bsz
-        else:
-            num_samples_in_batch = sum([len(b) - 1 for b in batch[0]["cu_seqlens"]])
-            max_length_in_batch = max([(b[1:] - b[:-1]).max().item() for b in batch[0]["cu_seqlens"]])
-            max_samples_in_batch = max([len(b) - 1 for b in batch[0]["cu_seqlens"]])
-            min_samples_in_batch = min([len(b) - 1 for b in batch[0]["cu_seqlens"]])
+        num_samples_in_batch = sum([len(b) - 1 for b in batch[0]["cu_seqlens"]])
+        max_length_in_batch = max([(b[1:] - b[:-1]).max().item() for b in batch[0]["cu_seqlens"]])
+        max_samples_in_batch = max([len(b) - 1 for b in batch[0]["cu_seqlens"]])
+        min_samples_in_batch = min([len(b) - 1 for b in batch[0]["cu_seqlens"]])
         time_cost = time.time() - start_time
         tk_per_gpu = round(
             num_tokens_in_batch * gpc.get_world_size(ParallelMode.DATA) / gpc.get_world_size(ParallelMode.GLOBAL),
