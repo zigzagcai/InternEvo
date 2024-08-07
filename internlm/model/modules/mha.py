@@ -360,6 +360,11 @@ class GQA(nn.Module):
         dtype: Optional[torch.dtype] = None,
         qk_interleaved: Optional[bool] = True,
         enable_qkv_fusion: bool = True,
+        qkv_bias=True,
+        o_bias=False,
+        sliding_window_cfg: dict = None,
+        scale_attn_weights: bool = False,  # Qwen1
+        use_logn_attn: bool = False,  # Qwen1
     ) -> None:
         super().__init__()
         self.layer_idx = layer_idx
@@ -397,14 +402,14 @@ class GQA(nn.Module):
         if enable_qkv_fusion:
             self.wqkv = new_linear("wqkv", embed_dim, embed_dim + 2 * self.kv_dim, bias, **factory_kwargs)
         else:
-            self.wq = new_linear("wq", embed_dim, embed_dim, bias, **factory_kwargs)
-            self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
-            self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
+            self.wq = new_linear("wq", embed_dim, embed_dim, qkv_bias, **factory_kwargs)
+            self.wk = new_linear("wk", embed_dim, self.kv_dim, qkv_bias, **factory_kwargs)
+            self.wv = new_linear("wv", embed_dim, self.kv_dim, qkv_bias, **factory_kwargs)
 
         self.inner_attn = SelfAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
         self.inner_cross_attn = CrossAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
 
-        self.wo = new_linear("wo", embed_dim, embed_dim, bias, **factory_kwargs)
+        self.wo = new_linear("wo", embed_dim, embed_dim, o_bias, **factory_kwargs)
 
     def register_checkpoint_compatibility_hooks(
         self, pre_load_hook: Optional[Callable] = None, pre_save_hook: Optional[Callable] = None

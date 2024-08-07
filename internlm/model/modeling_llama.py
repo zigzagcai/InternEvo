@@ -96,6 +96,12 @@ class Llama2Decoder(nn.Module):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        qkv_bias=True,
+        o_bias=False,
+        sliding_window_cfg: dict = None,
+        scale_attn_weights: bool = False,  # Qwen1
+        use_logn_attn: bool = False,  # Qwen1
+        intermediate_size: int = 0,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -137,7 +143,7 @@ class Llama2Decoder(nn.Module):
 
         self.feed_forward = new_feed_forward(
             hidden_size,
-            int(hidden_size * mlp_ratio),
+            intermediate_size,
             out_features=hidden_size,
             bias=False,
             device=device,
@@ -352,6 +358,12 @@ class Llama2(nn.Module):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        qkv_bias=True,
+        o_bias=False,
+        sliding_window_cfg: dict = None,
+        scale_attn_weights: bool = False,  # Qwen1
+        use_logn_attn: bool = False,  # Qwen1
+        intermediate_size: int = 0,
     ):
         super().__init__()
 
@@ -399,6 +411,12 @@ class Llama2(nn.Module):
                     rope_base=rope_base,
                     mlp_layer_fusion=mlp_layer_fusion,
                     multiple_of=multiple_of,
+                    qkv_bias=qkv_bias,
+                    o_bias=o_bias,
+                    sliding_window_cfg=sliding_window_cfg,
+                    scale_attn_weights=scale_attn_weights,  # Qwen1
+                    use_logn_attn=use_logn_attn,  # Qwen1
+                    intermediate_size=intermediate_size,
                 )
                 for lid in range(num_layers)
             ]
