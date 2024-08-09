@@ -1032,5 +1032,4 @@ def hf_q_k_v_with_cu_seqlens(
         return_attn_probs=False,
         causal=causal,
     )
-    attn_output = attn_output.unsqueeze(0)
     return attn_output

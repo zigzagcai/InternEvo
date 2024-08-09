@@ -795,7 +795,7 @@ class DistributedAttention(nn.Module):
 
     def __init__(
         self,
-        local_attention: nn.Module,
+        local_attention: Union[nn.Module, Callable],
         sequence_process_group: dist.ProcessGroup,
     ) -> None:
         super().__init__()
@@ -914,7 +914,7 @@ def auto_wrap_distributed_attention(cls: nn.Module) -> Callable[[bool, Any, floa
     return partial(_attetion_constructor, local_attn_cls=cls)
 
 
-def auto_wrap_func_distributed_attention(func: Callable) -> Callable[[bool, Any, float], nn.Module]:
+def auto_wrap_func_distributed_attention(func: Callable) -> Callable[..., Callable]:
     """
     Wrap a local attention function to a distributed one, which will be used in the ISP parallelism.
     """
