@@ -376,7 +376,6 @@ def _npu_varlen_kvpacked_attn(
 ):
     # TODO: support npu native varlen flash attention
     k, v = kv.unbind(dim=2)
-    k, v = k.squeeze(dim=2), v.squeeze(dim=2)
     return _npu_varlen_qkvsplited_attn(
         q,
         k,
@@ -393,7 +392,6 @@ def _npu_varlen_kvpacked_attn(
 
 def _npu_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p: float, softmax_scale=None, causal=False):
     k, v = kv.unbind(dim=2)
-    k, v = k.squeeze(dim=2), v.squeeze(dim=2)
     return _npu_fixedlen_qkvsplited_attn(q, k, v, dropout_p, softmax_scale, causal)
 
 
