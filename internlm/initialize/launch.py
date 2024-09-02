@@ -392,7 +392,11 @@ def args_sanity_check():
         assert (
             gpc.config.data.use_packed_dataset is False
         ), "only unpacked data is supported when tensor parallel mode is isp and accelerator type is NPU or DIPU"
-    else:
+
+    if internlm_accelerator.get_accelerator_backend() in [
+        AcceleratorType.NPU,
+        AcceleratorType.DIPU,
+    ]:
         assert (
             gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
         ), "use_packed_dataset should be set same value as use_flash_attn"
