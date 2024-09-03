@@ -234,38 +234,6 @@ def get_megatron_flops(
     return tflops
 
 
-# def get_megatron_flops(
-#     elapsed_time_per_iter,
-#     seq_len=2048,
-#     hidden_size=12,
-#     num_layers=32,
-#     vocab_size=12,
-#     global_batch_size=4,
-#     global_world_size=1,
-#     mlp_ratio=4,
-# ):
-#     """
-#     Calc flops based on the paper of Megatron https://deepakn94.github.io/assets/papers/megatron-sc21.pdf
-#     A method for calculating TFLOPS by using effective computation.
-#     """
-
-#     checkpoint_activations_factor = 3
-#     attn_checkpoint_activation_factor = 3
-
-#     flops_per_iteration = (
-#         # wqkv wo mlp
-#         (checkpoint_activations_factor * ((8 + mlp_ratio * 6) * global_batch_size * seq_len * hidden_size**2))
-#         * num_layers
-#         # attn
-#         + attn_checkpoint_activation_factor * (4 * global_batch_size * seq_len**2 * hidden_size) * num_layers / 2
-#         # head
-#         + 6 * global_batch_size * seq_len * hidden_size * vocab_size
-#     )
-
-#     tflops = flops_per_iteration / (elapsed_time_per_iter * global_world_size * (10**12))
-#     return tflops
-
-
 def enable_pytorch_expandable_segments():
     if torch.__version__ >= "2.1.0" and AcceleratorType.GPU == internlm_accelerator.get_accelerator_backend():
         _expandable_segments_conf = "expandable_segments:True"

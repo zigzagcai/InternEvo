@@ -302,7 +302,7 @@ class LossWithTypeId:
             loss_list = self.loss_fn(logits, labels)
 
             # get current rank part loss_list
-            if is_using_isp() and gpc.config.model.parallel_ouput:
+            if is_using_isp() and gpc.config.model.parallel_output:
                 step_seqlen = logits.shape[0]
                 sp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
                 loss_list = loss_list[step_seqlen * sp_rank : step_seqlen * (sp_rank + 1)]

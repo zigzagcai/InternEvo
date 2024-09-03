@@ -30,10 +30,6 @@ def zigzag_double_ring_flash_attn_forward(
     alibi_slopes=None,  # pylint: disable=W0613
     deterministic=False,  # pylint: disable=W0613
 ):
-
-    # if gpc.get_global_rank() == 0:
-    #     print("DOUBLE RING FORWARD.........", flush=True)
-
     assert causal is True, "zigzag ring is meaningless for causal=False"
     ring_comm = RingComm(ring_pg)
     p2p_comm = RingComm(p2p_pg)
@@ -530,8 +526,6 @@ def zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
     dkv_intra_window_group=None,
     layer_idx=0,
 ):
-    if gpc.get_global_rank() == 0:
-        print("====running KV PACKED====")
     return ZigZagRingFlashAttnFunc.apply(
         q,
         kv[:, :, 0],
@@ -568,9 +562,6 @@ def zigzag_ring_flash_attn_qkvpacked_func_with_sliding_window(
     dkv_intra_window_group=None,
     layer_idx=0,
 ):
-    if gpc.get_global_rank() == 0:
-        print("====running QKV PACKED====")
-
     return ZigZagRingFlashAttnFunc.apply(
         qkv[:, :, 0],
         qkv[:, :, 1],
@@ -609,10 +600,6 @@ def zigzag_ring_flash_attn_qkvsplited_func_with_sliding_window(
     dkv_intra_window_group=None,
     layer_idx=0,
 ):
-
-    if gpc.get_global_rank() == 0:
-        print("====running QKV SPLITED====")
-
     return ZigZagRingFlashAttnFunc.apply(
         q,
         k,
