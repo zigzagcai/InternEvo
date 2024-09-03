@@ -29,7 +29,9 @@ def _split_data_for_sequence_parallel(data, label):
         data["indexes"] = _split(data["indexes"], ParallelMode.TENSOR, dim=_indexes_seq_dim)
 
     data["input_ids"] = _split(data["input_ids"], ParallelMode.TENSOR, dim=_seq_dim)
-    label = _split(label, ParallelMode.TENSOR, dim=_seq_dim)
+
+    if gpc.config.model.parallel_output:
+        label = _split(label, ParallelMode.TENSOR, dim=_seq_dim)
 
     return data, label
 
@@ -46,9 +48,6 @@ def _split_data_for_2D_sequence_parallel(data, label):
     hp_rank = gpc.get_local_rank(ParallelMode.HEAD)
     cp_rank = gpc.get_local_rank(ParallelMode.CONTEXT)
     stride = 2
-
-    if gpc.get_global_rank() == 0:
-        print(f"ht debug data.shape:{data['input_ids'].shape} label.shape:{label.shape}", flush=True)
 
     assert len(data["input_ids"].shape) == 2
     assert len(label.shape) == 2
@@ -102,9 +101,6 @@ def _split_data_for_2D_sequence_parallel(data, label):
     )
     label = label.index_select(seq_dim, index)
     label = label.view(*label.shape[0:seq_dim], -1, *label.shape[(seq_dim + 2) :])
-
-    if gpc.get_global_rank() == 0:
-        print(f"ht debug after split data.shape:{data['input_ids'].shape} label.shape:{label.shape}", flush=True)
 
     return data, label
 

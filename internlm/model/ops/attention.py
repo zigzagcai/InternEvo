@@ -243,7 +243,9 @@ def _sliding_window_zigzag_ring_flash_fixedlen_qkvpacked_attn(
     causal=False,
     **kwargs,
 ):
-    return zigzag_ring_flash_attn_qkvpacked_func_with_sliding_window(
+    return _flash_float32_compatibility_wrapper(
+        (0),
+        zigzag_ring_flash_attn_qkvpacked_func_with_sliding_window,
         qkv,
         dropout_p,
         softmax_scale,
@@ -265,7 +267,9 @@ def _sliding_window_zigzag_ring_flash_fixedlen_kvpacked_attn(
     causal=False,
     **kwargs,
 ):
-    return zigzag_ring_flash_attn_kvpacked_func_with_sliding_window(
+    return _flash_float32_compatibility_wrapper(
+        (0, 1),
+        zigzag_ring_flash_attn_kvpacked_func_with_sliding_window,
         q,
         kv,
         dropout_p,
@@ -292,8 +296,9 @@ def _sliding_window_zigzag_ring_flash_fixedlen_qkvsplited_attn(
     causal=False,
     **kwargs,
 ):
-
-    return zigzag_ring_flash_attn_qkvsplited_func_with_sliding_window(
+    return _flash_float32_compatibility_wrapper(
+        (0, 1, 2),
+        zigzag_ring_flash_attn_qkvsplited_func_with_sliding_window,
         q,
         k,
         v,

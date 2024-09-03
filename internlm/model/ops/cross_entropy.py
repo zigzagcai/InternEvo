@@ -161,7 +161,7 @@ def new_cross_entropy(
     parallel_output: bool = False,
     **kwargs,
 ):
-    if is_using_isp():
+    if is_using_isp() and parallel_output:
         if gpc.is_rank_for_log():
             logger.warning("Use VocabSequenceParallelCrossEntropyLoss.")
         return VocabSequenceParallelCrossEntropyLoss(

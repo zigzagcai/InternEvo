@@ -7,6 +7,7 @@ from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.parallel.comm.utils import gather_forward_split_backward
 from internlm.initialize.initialize_tensor import (
     normal_,
     scaled_init_method_normal,
@@ -24,6 +25,7 @@ from internlm.model.utils import (
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
+from internlm.utils.parallel import is_using_isp
 
 logger = get_logger(__file__)
 
@@ -454,5 +456,8 @@ class InternLM2(nn.Module):
             hidden_states = self.norm(hidden_states.float())
         if hasattr(self, "output"):
             hidden_states = self.output(hidden_states)
+
+        if is_using_isp() and gpc.config.model.parallel_output is False:
+            hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=1)
 
         return hidden_states
