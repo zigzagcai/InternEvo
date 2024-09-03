@@ -19,6 +19,7 @@ from internlm.core.parallel.comm.utils import (
     DUMMY_HANDLE_CONST,
     AsyncCommHandle,
     _gather,
+    _split,
     all_gather_raw,
     apply_to_tensors_only,
     expandKVPacked,
@@ -68,8 +69,17 @@ class HeadWeightParallelCommunicator(WPCommunicator):
     Weight parallel communicator for Head module.
     """
 
-    def __init__(self, process_group: dist.ProcessGroup = None) -> None:
-        self.process_group = process_group
+    def __init__(
+        self,
+        weight_process_group: dist.ProcessGroup = None,
+        seq_process_group: dist.ProcessGroup = None,
+        retain_out_sharded: bool = True,
+    ) -> None:
+        self.weight_process_group = weight_process_group
+        self.seq_process_group = seq_process_group
+        self._seq_parallel_mode = ParallelMode.TENSOR
+        self._seq_dim = 1
+        self._retain_out_sharded = retain_out_sharded
 
     def communication_mode(self) -> str:
         return "wp"
@@ -81,10 +91,10 @@ class HeadWeightParallelCommunicator(WPCommunicator):
         module: nn.Module = None,  # pylint: disable=W0613
         is_bias: bool = False,  # pylint: disable=W0613
     ) -> torch.Tensor:
-        if dist.get_world_size(self.process_group) <= 1:
+        if dist.get_world_size(self.weight_process_group) <= 1:
             return tensor
 
-        result, _ = all_gather_raw(tensor, self.process_group, async_op=async_op)
+        result, _ = all_gather_raw(tensor, self.weight_process_group, async_op=async_op)
         return result
 
     def grad_hook(
@@ -95,11 +105,36 @@ class HeadWeightParallelCommunicator(WPCommunicator):
         reduce_op: dist.ReduceOp = dist.ReduceOp.AVG,
         is_bias: bool = False,  # pylint: disable=W0613
     ) -> Tuple[torch.Tensor, AsyncCommHandle]:
-        if dist.get_world_size(self.process_group) <= 1:
+        if dist.get_world_size(self.weight_process_group) <= 1:
             return tensor, DUMMY_HANDLE_CONST
 
-        result, handle = reduce_scatter_raw(tensor, self.process_group, op=reduce_op, async_op=async_op)
+        result, handle = reduce_scatter_raw(tensor, self.weight_process_group, op=reduce_op, async_op=async_op)
         return result, handle
+
+        # rewrite grad_output communication hook
+
+    def grad_output_hook(
+        self, grad_output: torch.Tensor, async_op: bool = False  # pylint: disable=W0613
+    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
+        """
+        split grad_output if retain_out_sharded is False.
+        """
+        if self._retain_out_sharded or dist.get_world_size(self.seq_process_group) <= 1:
+            return grad_output, DUMMY_HANDLE_CONST
+
+        return _split(grad_output, parallel_mode=self._seq_parallel_mode, dim=self._seq_dim), DUMMY_HANDLE_CONST
+
+    # rewrite ouput communication hook
+    def output_hook(
+        self, output: torch.Tensor, async_op: bool = False  # pylint: disable=W0613
+    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
+        """
+        all gather output for head layer if retain_out_sharded is False.
+        """
+        if self._retain_out_sharded or dist.get_world_size(self.seq_process_group) <= 1:
+            return output, DUMMY_HANDLE_CONST
+
+        return _gather(output, parallel_mode=self._seq_parallel_mode, dim=self._seq_dim), DUMMY_HANDLE_CONST
 
 
 class EmbeddingWeightParallelCommunicator:
