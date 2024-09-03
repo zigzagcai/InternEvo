@@ -29,6 +29,7 @@ from internlm.train.pipeline import (
 )
 from internlm.utils.common import (
     BatchSkipper,
+    check_cuda_env,
     enable_pytorch_expandable_segments,
     get_current_device,
     get_megatron_flops,
@@ -76,6 +77,9 @@ class TrainerBuilder(Trainer):
 
         # record very_begining_time
         very_begining_time = time.time()
+
+        # check cuda env
+        check_cuda_env()
 
         # set torch expandable_segments
         enable_pytorch_expandable_segments()
@@ -138,7 +142,12 @@ class TrainerBuilder(Trainer):
         )
 
         # initialize metric for calculating accuracy and perplexity
-        _dp_pg = gpc.get_group(ParallelMode.ISP_DATA) if is_using_isp() else gpc.get_group(ParallelMode.DATA)
+        # if isp mode, head output is parallel in sequence dim, metric dp group should be SP*DP
+        _dp_pg = (
+            gpc.get_group(ParallelMode.ISP_DATA)
+            if is_using_isp() and gpc.config.model.parallel_output
+            else gpc.get_group(ParallelMode.DATA)
+        )
         _tp_pg = dist.new_group([gpc.get_global_rank()]) if is_using_isp() else gpc.get_group(ParallelMode.TENSOR)
         metric = AccPerplex(
             device=get_current_device(),
