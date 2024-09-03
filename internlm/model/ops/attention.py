@@ -17,7 +17,10 @@ from torch import nn
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.parallel.comm.isp import auto_wrap_distributed_attention
+from internlm.core.parallel.comm.isp import (
+    auto_wrap_distributed_attention,
+    auto_wrap_func_distributed_attention,
+)
 from internlm.model.ops.ring_flash_attn import (
     zigzag_ring_flash_attn_kvpacked_func_with_sliding_window,
     zigzag_ring_flash_attn_qkvpacked_func_with_sliding_window,
@@ -493,7 +496,6 @@ def _npu_varlen_kvpacked_attn(
 ):
     # TODO: support npu native varlen flash attention
     k, v = kv.unbind(dim=2)
-    k, v = k.squeeze(dim=2), v.squeeze(dim=2)
     return _npu_varlen_qkvsplited_attn(
         q,
         k,
@@ -510,7 +512,6 @@ def _npu_varlen_kvpacked_attn(
 
 def _npu_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p: float, softmax_scale=None, causal=False):
     k, v = kv.unbind(dim=2)
-    k, v = k.squeeze(dim=2), v.squeeze(dim=2)
     return _npu_fixedlen_qkvsplited_attn(q, k, v, dropout_p, softmax_scale, causal)
 
 
@@ -1052,3 +1053,44 @@ class CrossAttention(nn.Module):
         return op(
             q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, dropout, softmax_scale, causal, *extra_args
         )
+
+
+@auto_wrap_func_distributed_attention
+def hf_q_k_v_without_cu_seqlens(
+    query_states,
+    key_states,
+    value_states,
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=True,
+):
+    attn_output = _flash_fixedlen_qkvsplited_func(  # TODO: currently only support GPU environment
+        query_states, key_states, value_states, dropout_p=dropout_p, softmax_scale=softmax_scale, causal=causal
+    )
+    return attn_output
+
+
+@auto_wrap_func_distributed_attention
+def hf_q_k_v_with_cu_seqlens(
+    query_states,
+    key_states,
+    value_states,
+    cumulative_len,
+    max_seqlen,
+    dropout_p=0.0,
+    causal=True,
+):
+    q_unpad, k_unpad, v_unpad = query_states.flatten(0, 1), key_states.flatten(0, 1), value_states.flatten(0, 1)
+    attn_output = _flash_varlen_qkvsplited_func(  # TODO: currently only support GPU environment
+        q_unpad,
+        k_unpad,
+        v_unpad,
+        cumulative_len,
+        cumulative_len,
+        max_seqlen,
+        max_seqlen,
+        dropout_p=dropout_p,
+        return_attn_probs=False,
+        causal=causal,
+    )
+    return attn_output

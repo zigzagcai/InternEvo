@@ -95,7 +95,7 @@ class _VocabSequenceParallelCrossEntropy(torch.autograd.Function):
         # transpose
         grad_input = grad_input.transpose(0, 1).contiguous()
         # reshape
-        grad_input = grad_input.view(-1, gpc.config.VOCAB_SIZE)
+        grad_input = grad_input.view(-1, gpc.config.model.vocab_size)
 
         return grad_input, None, None
 

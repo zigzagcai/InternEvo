@@ -446,9 +446,7 @@ class PackedDatasetWithCut(PackedDataset):
         [14, 15, 16, 0, 0, 0]
 
         """
-
         assert index < len(self.dataset), "the index should be smaller than the length of datasets."
-
         pre_pos, pos = self.cal_pos_unpack(index)
 
         pack, cu_seqlens, indexes, labels, type_ids = [], [0], [], [], []

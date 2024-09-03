@@ -31,6 +31,7 @@ from internlm.utils.common import SchedulerHook, get_current_device
 from internlm.utils.utils import (
     CuSeqlenType,
     QKVPackType,
+    TensorParallelMode,
     check_attention_argument,
     params_dispatch_with_condition,
 )
@@ -874,7 +875,7 @@ class DistributedAttention(nn.Module):
 
     def __init__(
         self,
-        local_attention: nn.Module,
+        local_attention: Union[nn.Module, Callable],
         sequence_process_group: dist.ProcessGroup,
     ) -> None:
         super().__init__()
@@ -888,7 +889,7 @@ class DistributedAttention(nn.Module):
 
     @forward.register(conditions=(str(QKVPackType.QKVPACKED), str(CuSeqlenType.With)))
     @forward.register(conditions=(str(QKVPackType.QKVPACKED), str(CuSeqlenType.WithOut)))
-    def _(self, qkv: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _qkv(self, qkv: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """forward
 
         Arguments:
@@ -903,7 +904,7 @@ class DistributedAttention(nn.Module):
         # scatter in n_head and gather in seqlen(packlen)
         qkv = _SeqAllToAll.apply(self.spg, 3, 1, qkv)
 
-        context = self.local_attn(qkv, **kwargs)
+        context = self.local_attn(qkv, *args, **kwargs)
 
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
@@ -913,7 +914,7 @@ class DistributedAttention(nn.Module):
 
     @forward.register(conditions=(str(QKVPackType.KVPACKED), str(CuSeqlenType.With)))
     @forward.register(conditions=(str(QKVPackType.KVPACKED), str(CuSeqlenType.WithOut)))
-    def _(self, q: torch.Tensor, kv: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _q_kv(self, q: torch.Tensor, kv: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """forward
 
         Arguments:
@@ -939,7 +940,7 @@ class DistributedAttention(nn.Module):
         q, kv = _SeqAllToAll.apply(self.spg, [2, 3], [1, 1], q, kv)
 
         torch.cuda.synchronize()
-        context = self.local_attn(q, kv, **kwargs)
+        context = self.local_attn(q, kv, *args, **kwargs)
         torch.cuda.synchronize()
 
         context = _SeqAllToAll.apply(self.spg, 1, 2, context)
@@ -948,7 +949,7 @@ class DistributedAttention(nn.Module):
 
     @forward.register(conditions=(str(QKVPackType.QKVSPLITED), str(CuSeqlenType.With)))
     @forward.register(conditions=(str(QKVPackType.QKVSPLITED), str(CuSeqlenType.WithOut)))
-    def _(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _q_k_v(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """forward
 
         Arguments:
@@ -971,7 +972,7 @@ class DistributedAttention(nn.Module):
         # scatter in n_head and gather in seqlen(packlen)
         v = _SeqAllToAll.apply(self.spg, 2, 1, v)
 
-        context = self.local_attn(q, k, v, **kwargs)
+        context = self.local_attn(q, k, v, *args, **kwargs)
 
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
@@ -989,12 +990,9 @@ def auto_wrap_distributed_attention(cls: nn.Module) -> Callable[[bool, Any, floa
     def _attetion_constructor(
         local_attn_cls: type, causal=False, softmax_scale=None, attention_dropout=0.0, layer_idx=0
     ) -> nn.Module:
-        try:
-            tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
-        except AttributeError:
-            tp_mode = "mtp"
+        tp_mode = gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name)
 
-        if tp_mode != "isp":
+        if tp_mode != TensorParallelMode.isp.name:
             return local_attn_cls(causal, softmax_scale, attention_dropout)
         else:
             if gpc.config.parallel.sequence_2D.enable is True:
@@ -1007,3 +1005,21 @@ def auto_wrap_distributed_attention(cls: nn.Module) -> Callable[[bool, Any, floa
             )
 
     return partial(_attetion_constructor, local_attn_cls=cls)
+
+
+def auto_wrap_func_distributed_attention(func: Callable) -> Callable[..., Callable]:
+    """
+    Wrap a local attention function to a distributed one, which will be used in the ISP parallelism.
+    """
+
+    def _attention_func_constructor(*args, local_attn_func=None, **kwargs) -> Callable:
+        tp_mode = gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name)
+
+        if tp_mode != TensorParallelMode.isp.name:
+            return local_attn_func(*args, **kwargs)
+        else:
+            return DistributedAttention(
+                local_attention=local_attn_func, sequence_process_group=gpc.get_group(ParallelMode.TENSOR)
+            )(*args, **kwargs)
+
+    return partial(_attention_func_constructor, local_attn_func=func)

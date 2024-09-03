@@ -21,10 +21,9 @@ from internlm.utils.common import get_current_device, set_random_seed
 HEAD_NUM = 32
 HIDDEN_SZIE = 4096
 SEQ_LEN = [2048, 4096]
-MICRO_BSZ = 1
 HEAD_DIM = HIDDEN_SZIE // HEAD_NUM
 VOCAB_SIZE = 32000
-NUM_KV_HEAD_LIST = [8, 32]
+NUM_KV_HEAD_LIST = [1, 8, 32]
 MICRO_BSZ_LIST = [1, 2]
 DTYPE_LIST = [torch.bfloat16, torch.float16]
 
