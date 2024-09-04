@@ -11,7 +11,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.comm.utils import _split
 from internlm.utils.logger import get_logger
-from internlm.utils.utils import ModelType, TensorParallelMode
+from internlm.utils.utils import TensorParallelMode
 
 logger = get_logger(__file__)
 
@@ -32,8 +32,7 @@ def _split_data_for_sequence_parallel(data, label):
     ):
         data["indexes"] = _split(data["indexes"], ParallelMode.TENSOR, dim=_indexes_seq_dim)
     if (
-        gpc.config.model_type == ModelType.HF.name
-        and "position_ids" in data
+        "position_ids" in data
         and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.isp.name
     ):
         data["position_ids"] = _split(data["position_ids"], ParallelMode.TENSOR, dim=_indexes_seq_dim)
