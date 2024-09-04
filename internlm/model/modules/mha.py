@@ -271,8 +271,14 @@ class MHA(nn.Module):
                     empties = attention_mask[..., -1].sum(dim=-1)
                     indexes4q = sequence_len_offset * torch.ones(q.size(0), dtype=torch.int, device=q.device) - empties
                     indexes4k = sequence_len_offset * torch.ones(k.size(0), dtype=torch.int, device=k.device) - empties
+                    # TODO To fit flash_attn apis, we rearrange q&k to pack them here and
+                    # calculate rope for this batch input. Waiting to be optimized
+                    q = rearrange(q, "b s h d -> s b h d", d=self.head_dim)  # pack input
+                    k = rearrange(k, "b s h d -> s b h d", d=self.head_dim)
                     q = self.rotary_emb(q, offsets=indexes4q, cache_type="query", interleaved=self.interleaved)
                     k = self.rotary_emb(k, offsets=indexes4k, cache_type="key", interleaved=self.interleaved)
+                    q = rearrange(q, "s b h d -> b s h d", d=self.head_dim)  # unpack
+                    k = rearrange(k, "s b h d -> b s h d", d=self.head_dim)
 
             kv = torch.stack([k, v], dim=2)
             # update kv cache after rotary embedding when disable dynamic ntk rope.
@@ -534,8 +540,14 @@ class GQA(nn.Module):
                 empties = attention_mask[..., -1].sum(dim=-1)
                 indexes4q = sequence_len_offset * torch.ones(q.size(0), dtype=torch.int, device=q.device) - empties
                 indexes4k = sequence_len_offset * torch.ones(k.size(0), dtype=torch.int, device=k.device) - empties
+                # TODO To fit flash_attn apis, we rearrange q&k to pack them here and
+                # calculate rope for this batch input. Waiting to be optimized
+                q = rearrange(q, "b s h d -> s b h d", d=self.head_dim)  # pack input
+                k = rearrange(k, "b s h d -> s b h d", d=self.head_dim)
                 q = self.rotary_emb(q, offsets=indexes4q, cache_type="query", interleaved=self.interleaved)
                 k = self.rotary_emb(k, offsets=indexes4k, cache_type="key", interleaved=self.interleaved)
+                q = rearrange(q, "s b h d -> b s h d", d=self.head_dim)  # unpack
+                k = rearrange(k, "s b h d -> b s h d", d=self.head_dim)
 
         kv = torch.stack([k, v], dim=2)
 
