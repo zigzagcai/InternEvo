@@ -161,15 +161,15 @@ def new_cross_entropy(
     parallel_output: bool = False,
     **kwargs,
 ):
-    if is_using_isp() and parallel_output:
-        if gpc.is_rank_for_log():
-            logger.warning("Use VocabSequenceParallelCrossEntropyLoss.")
-        return VocabSequenceParallelCrossEntropyLoss(
-            ignore_index=ignore_index,
-            reduction=reduction,
-            label_smoothing=label_smoothing,
-            process_group=gpc.get_group(ParallelMode.TENSOR),
-        )
+    # if is_using_isp() and parallel_output:
+    #     if gpc.is_rank_for_log():
+    #         logger.warning("Use VocabSequenceParallelCrossEntropyLoss.")
+    #     return VocabSequenceParallelCrossEntropyLoss(
+    #         ignore_index=ignore_index,
+    #         reduction=reduction,
+    #         label_smoothing=label_smoothing,
+    #         process_group=gpc.get_group(ParallelMode.TENSOR),
+    #     )
 
     if parallel_output:
         assert (

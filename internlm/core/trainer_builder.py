@@ -205,12 +205,14 @@ class TrainerBuilder(Trainer):
     def _initialize_metric(self, dataset_types) -> AccPerplex:
         # initialize metric for calculating accuracy and perplexity
         # if isp mode, head output is parallel in sequence dim, metric dp group should be SP*DP
-        _dp_pg = (
-            gpc.get_group(ParallelMode.ISP_DATA)
-            if is_using_isp() and gpc.config.model.parallel_output
-            else gpc.get_group(ParallelMode.DATA)
-        )
-        _tp_pg = dist.new_group([gpc.get_global_rank()]) if is_using_isp() else gpc.get_group(ParallelMode.TENSOR)
+        # _dp_pg = (
+        #     gpc.get_group(ParallelMode.ISP_DATA)
+        #     if is_using_isp() and gpc.config.model.parallel_output
+        #     else gpc.get_group(ParallelMode.DATA)
+        # )
+        # _tp_pg = dist.new_group([gpc.get_global_rank()]) if is_using_isp() else gpc.get_group(ParallelMode.TENSOR)
+        _dp_pg = gpc.get_group(ParallelMode.DATA)
+        _tp_pg = gpc.get_group(ParallelMode.TENSOR)
         return AccPerplex(
             device=get_current_device(),
             tp_pg=_tp_pg,
