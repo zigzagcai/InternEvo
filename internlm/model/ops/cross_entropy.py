@@ -13,7 +13,6 @@ from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
-from internlm.utils.parallel import is_using_isp
 
 try:
     from flash_attn.losses.cross_entropy import (
@@ -161,15 +160,15 @@ def new_cross_entropy(
     parallel_output: bool = False,
     **kwargs,
 ):
-    if is_using_isp() and parallel_output:
-        if gpc.is_rank_for_log():
-            logger.warning("Use VocabSequenceParallelCrossEntropyLoss.")
-        return VocabSequenceParallelCrossEntropyLoss(
-            ignore_index=ignore_index,
-            reduction=reduction,
-            label_smoothing=label_smoothing,
-            process_group=gpc.get_group(ParallelMode.TENSOR),
-        )
+    # if is_using_isp() and parallel_output:
+    #     if gpc.is_rank_for_log():
+    #         logger.warning("Use VocabSequenceParallelCrossEntropyLoss.")
+    #     return VocabSequenceParallelCrossEntropyLoss(
+    #         ignore_index=ignore_index,
+    #         reduction=reduction,
+    #         label_smoothing=label_smoothing,
+    #         process_group=gpc.get_group(ParallelMode.TENSOR),
+    #     )
 
     if parallel_output:
         assert (

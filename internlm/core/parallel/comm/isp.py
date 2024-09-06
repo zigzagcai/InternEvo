@@ -79,8 +79,10 @@ class HeadWeightParallelCommunicator(WPCommunicator):
         self.weight_process_group = weight_process_group
         self.seq_process_group = seq_process_group
         self._seq_parallel_mode = ParallelMode.TENSOR
-        self._seq_dim = 1
+        self._seq_world_size = gpc.get_world_size(ParallelMode.TENSOR)
         self._retain_out_sharded = retain_out_sharded
+        self._seq_dim = 1
+        self._hid_dim = 2
 
     def communication_mode(self) -> str:
         return "wp"
@@ -120,10 +122,25 @@ class HeadWeightParallelCommunicator(WPCommunicator):
         """
         split grad_output if retain_out_sharded is False.
         """
-        if self._retain_out_sharded or dist.get_world_size(self.seq_process_group) <= 1:
-            return grad_output, DUMMY_HANDLE_CONST
 
-        return _split(grad_output, parallel_mode=self._seq_parallel_mode, dim=self._seq_dim), DUMMY_HANDLE_CONST
+        # gather hidden_states dim and split seq dim when parallel_output is True
+        if self._retain_out_sharded:
+            if self._seq_world_size <= 1:
+                return grad_output, DUMMY_HANDLE_CONST
+            else:
+                _seq_splited_list = [
+                    t.contiguous() for t in torch.tensor_split(grad_output, self._seq_world_size, dim=self._seq_dim)
+                ]
+                output_list = [torch.empty_like(_seq_splited_list[0]) for _ in range(self._seq_world_size)]
+                dist.all_to_all(output_list, _seq_splited_list, group=self.seq_process_group)
+                grad_output = torch.cat(output_list, dim=self._hid_dim).contiguous()
+                return grad_output, DUMMY_HANDLE_CONST
+        # split seq dim when parallel_output is False
+        else:
+            if self._seq_world_size <= 1:
+                return grad_output, DUMMY_HANDLE_CONST
+            else:
+                return _split(grad_output, parallel_mode=self._seq_parallel_mode, dim=self._seq_dim), DUMMY_HANDLE_CONST
 
     # rewrite ouput communication hook
     def output_hook(
@@ -132,10 +149,25 @@ class HeadWeightParallelCommunicator(WPCommunicator):
         """
         all gather output for head layer if retain_out_sharded is False.
         """
-        if self._retain_out_sharded or dist.get_world_size(self.seq_process_group) <= 1:
-            return output, DUMMY_HANDLE_CONST
 
-        return _gather(output, parallel_mode=self._seq_parallel_mode, dim=self._seq_dim), DUMMY_HANDLE_CONST
+        # gather seq dim and split hidden_states dim when parallel_output is True
+        if self._retain_out_sharded:
+            if self._seq_world_size <= 1:
+                return output, DUMMY_HANDLE_CONST
+            else:
+                _hid_splited_list = [
+                    t.contiguous() for t in torch.tensor_split(output, self._seq_world_size, dim=self._hid_dim)
+                ]
+                output_list = [torch.empty_like(_hid_splited_list[0]) for _ in range(self._seq_world_size)]
+                dist.all_to_all(output_list, _hid_splited_list, group=self.seq_process_group)
+                output = torch.cat(output_list, dim=self._seq_dim).contiguous()
+                return output, DUMMY_HANDLE_CONST
+        # gather seq dim when parallel_output is False
+        else:
+            if self._seq_world_size <= 1:
+                return output, DUMMY_HANDLE_CONST
+            else:
+                return _gather(output, parallel_mode=self._seq_parallel_mode, dim=self._seq_dim), DUMMY_HANDLE_CONST
 
 
 class EmbeddingWeightParallelCommunicator:
