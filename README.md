@@ -116,7 +116,7 @@ Please refer to the [System Architecture document](./doc/en/structure.md) for ar
 <div align="center">
   <b>InternEvo Feature Zoo</b>
 </div>
-<table align="center">
+<table>
   <tbody>
     <tr align="center" valign="bottom">
       <td>
@@ -167,6 +167,31 @@ Please refer to the [System Architecture document](./doc/en/structure.md) for ar
       </td>
     </tr>
 </td>
+    </tr>
+  </tbody>
+</table>
+
+## Common Tips
+
+<div align="center">
+</div>
+<table>
+  <tbody>
+    <tr align="center" valign="bottom">
+      <td>
+        <b>Item</b>
+      </td>
+      <td>
+        <b>Introduction</b>
+      </td>
+    </tr>
+    <tr valign="bottom">
+      <td>
+        <b>Parallel Computing Loss</b>
+      </td>
+      <td>
+        <b><a href="doc/en/parallel_output.md">link</a></b>
+      </td>
     </tr>
   </tbody>
 </table>
