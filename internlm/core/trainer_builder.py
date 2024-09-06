@@ -39,7 +39,7 @@ from internlm.utils.common import (
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
-from internlm.utils.parallel import get_parallel_log_file_name, is_using_isp
+from internlm.utils.parallel import get_parallel_log_file_name
 from internlm.utils.simple_memory_profiler import SimpleMemoryProfiler
 from internlm.utils.utils import DataType
 from internlm.utils.writer import Writer

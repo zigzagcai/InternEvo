@@ -3,13 +3,11 @@ from typing import Callable, List, Optional
 import torch
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.ops.cross_entropy import new_cross_entropy
 from internlm.utils.common import SchedulerHook, get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
-from internlm.utils.parallel import is_using_isp
 
 try:
     from torch_scatter import scatter as cuda_scatter
