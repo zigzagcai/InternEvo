@@ -13,7 +13,6 @@ from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
-from internlm.utils.parallel import is_using_isp
 
 try:
     from flash_attn.losses.cross_entropy import (
