@@ -14,12 +14,16 @@ from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import (
+    IS_REPLICA_EXPERT_DATA_PARALLEL,
     IS_REPLICA_ZERO_PARALLEL,
     IS_TENSOR_EXPERT_DATA_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
+    IS_WEIGHT_EXPERT_DATA_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
 )
+from internlm.core.parallel.comm.isp import ISPCommunicatorWrapper
 from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
+from internlm.model.modules.utils import is_gate_param, is_moe_param
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer.store import (
     BucketStore,
@@ -63,7 +67,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         grad_scal_cfg: Config = None,
         zero_cfg: Config = None,
         param_bcast_sync_handler: ParamAsyncBcastHandler = None,
-        isp_communicator=None,
+        isp_communicator: ISPCommunicatorWrapper = None,
     ):
         # DynamicGradScaler related args
         if gpc.config.model.dtype is torch.float32:
@@ -83,6 +87,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         self._overlap_sync_grad = zero_cfg.overlap_sync_grad
         self._overlap_sync_param = zero_cfg.overlap_sync_param
         self.use_isp = is_using_isp()
+        self.moe_no_tp = getattr(gpc.config.parallel.expert, "no_tp", False)
 
         super().__init__(optim=optimizer)
 
@@ -367,15 +372,22 @@ class HybridZeroOptimizer(BaseOptimizer):
                         is_using_sequence_parallel()
                         and hasattr(param, IS_REPLICA_ZERO_PARALLEL)
                         and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True
-                    ):
+                    ) or (is_gate_param(param) and gpc.config.parallel.expert.no_tp):
                         accum_grad_obj.register_hook(extra_layernorm_reduce_grad_hook)
 
                     # we should not only register for parameters which have isp_reduce_scatter_name attr.
                     # we must keep up with reduce_grad_hook.
-                    if (
-                        self._isp_communicator
-                        and self._isp_communicator.overlap
-                        and gpc.config.parallel.weight.size > 1
+                    if self._isp_communicator and (
+                        (
+                            is_moe_param(param)
+                            and gpc.config.parallel.expert_weight.size > 1
+                            and gpc.config.parallel.expert_weight.overlap
+                        )
+                        or (
+                            not is_moe_param(param)
+                            and gpc.config.parallel.weight.size > 1
+                            and gpc.config.parallel.weight.overlap
+                        )
                     ):
                         if hasattr(param, "evo_tensor"):
                             param.register_post_accumulate_grad_hook(accum_grad_hook)
@@ -391,7 +403,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                 _define_and_attach(param, reduce_rank)
 
     def accumulate_left_grads_after_backward(self):
-        if self._isp_communicator is None or self._isp_communicator.overlap is False:
+        if self._isp_communicator is None:
             return
 
         for group_id in range(self.num_param_groups):
@@ -424,9 +436,7 @@ class HybridZeroOptimizer(BaseOptimizer):
 
             # release cuda memory.
             if self._isp_communicator.enable_memory_pool:
-                self._isp_communicator.memory_pool.free_reduce_scatter_memory(
-                    key=tuple(_grad.size()), index=_grad.index
-                )
+                self._isp_communicator.free_reduce_scatter_memory(key=tuple(_grad.size()), index=_grad.index)
             _grad = None
             self._isp_communicator.reduce_scatter_handlers[_key] = None
 
@@ -653,7 +663,12 @@ class HybridZeroOptimizer(BaseOptimizer):
                     setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
             elif self._is_moe_group(self.optim.param_groups[group_id]):
                 for param in params:
-                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+                    if self.moe_no_tp:
+                        setattr(param, IS_REPLICA_EXPERT_DATA_PARALLEL, True)
+                    elif self.use_isp:
+                        setattr(param, IS_WEIGHT_EXPERT_DATA_PARALLEL, True)
+                    else:
+                        setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
             else:
                 raise NotImplementedError("unrecognized parameter group.")
 
@@ -672,6 +687,10 @@ class HybridZeroOptimizer(BaseOptimizer):
                     delattr(param, IS_WEIGHT_ZERO_PARALLEL)
                 if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
                     delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
+                if hasattr(param, IS_WEIGHT_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_WEIGHT_EXPERT_DATA_PARALLEL)
+                if hasattr(param, IS_REPLICA_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_REPLICA_EXPERT_DATA_PARALLEL)
 
         return norm
 
