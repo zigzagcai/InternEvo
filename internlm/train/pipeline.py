@@ -57,7 +57,7 @@ from internlm.model.modules.linear import (
 )
 from internlm.model.modules.norm import new_layer_norm
 from internlm.model.modules.utils import is_moe_param
-from internlm.model.moe.megablock.mlp import (
+from internlm.model.moe.megablocks.mlp import (
     MegaBlockFeedForward,
     MegaBlockGroupedFeedForward,
 )
