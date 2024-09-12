@@ -1,5 +1,5 @@
 # Copyright (c) InternLM. All rights reserved.
-model_type = "LLAMA2"
+model_type = "QWEN2"
 
 VOCAB_SIZE = 152064
 
@@ -49,7 +49,7 @@ hybrid_zero_optimizer = dict(
 )
 
 parallel = dict(
-    zero1=dict(size=8, fsdp=False),
+    zero1=dict(size=-1, fsdp=False),
     tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=1, overlap=False, memory_pool=False),
@@ -57,13 +57,13 @@ parallel = dict(
 
 
 JOB_NAME = "qwen2"
-LEARNING_RATE = 1e-3
-MIN_LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-4
+MIN_LEARNING_RATE = 1e-5
 WEIGHT_DECAY = 0.1
 WARMUP_RATIO = 0.028
 OPTIMIZER_WARMUP_STEP = 0
 
-MICRO_NUM = 1
+MICRO_NUM = 4
 MICRO_BSZ = 1
 SEQ_LEN = 4096
 TOTAL_STEP = 75000

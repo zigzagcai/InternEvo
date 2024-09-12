@@ -48,6 +48,7 @@ class ModelType(Enum):
     LLAMA2 = 4
     INTERNLM_MoE = 5
     LLAVA = 6
+    QWEN2 = 7
 
 
 class DataType(Enum):
