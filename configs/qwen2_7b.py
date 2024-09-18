@@ -154,5 +154,4 @@ ckpt = dict(
     async_upload=False,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
     oss_snapshot_freq=CHECKPOINT_EVERY,  # snapshot ckpt save frequency.
-    load_ckpt_info=dict(path="./Qwen2-7B", content=("model",), ckpt_type="hf_qwen2"),
 )
