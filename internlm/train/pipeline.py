@@ -927,9 +927,11 @@ def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Opt
 
     # inject modules
     for _chunk in model:
-        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) or gpc.get_world_size(
-            ParallelMode.WEIGHT_DATA
-        ) == gpc.get_world_size(ParallelMode.GLOBAL):
+        if (
+            not is_using_isp() and gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL)
+        ) or (
+            is_using_isp() and gpc.get_world_size(ParallelMode.WEIGHT_DATA) == gpc.get_world_size(ParallelMode.GLOBAL)
+        ):
             continue
         for mod in modules:
             inject_funcs[mod](_chunk, inject, interactive)
