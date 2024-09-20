@@ -10,6 +10,15 @@ logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
 
 try:
+    from deeplink_ext.internevo_ops import (  # noqa: F401 # pylint: disable=W0611
+        AdamW as DeeplinkFusedAdamW,
+    )
+
+    deeplink_adamw_impl = True
+except (ModuleNotFoundError, ImportError):
+    deeplink_adamw_impl = False
+
+try:
     from torch_npu.optim import NpuFusedAdamW
 
     del NpuFusedAdamW
@@ -41,20 +50,23 @@ def new_compatible_adamw(
         if backend is AcceleratorType.GPU and torch.__version__ >= "2.1.0":
             if gpc.is_rank_for_log():
                 logger.warning(
-                    "Use fused AdamaW to avoid nan grad norm when "
+                    "Use fused AdamW to avoid nan grad norm when "
                     "model size is larger and use_fp32_norm=True, Please note this!"
                 )
             adam_extra_kwargs["fused"] = True
         elif backend is AcceleratorType.NPU:
             if gpc.is_rank_for_log():
                 logger.warning(
-                    "Use normal AdamaW, NPU fused_adamw currently has"
+                    "Use normal AdamW, NPU fused_adamw currently has"
                     "accuracy issues and is not supported yet. Please note this!"
                 )
             # TODO: support npu version adamw
-        elif backend is AcceleratorType.DIPU:
+        elif backend in [AcceleratorType.DIPU, AcceleratorType.DITORCH] and deeplink_adamw_impl:
             if gpc.is_rank_for_log():
-                logger.warning("Use torch.optim.AdamW rather than deeplink adamw. Please note this!")
+                logger.warning(
+                    "Use normal AdamW, NPU fused_adamw currently has"
+                    "accuracy issues and is not supported yet. Please note this!"
+                )
             # TODO: support deeplink version adamw
         else:
             if gpc.is_rank_for_log():

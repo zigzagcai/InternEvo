@@ -403,6 +403,7 @@ def args_sanity_check():
     ] == TensorParallelMode.isp.name and internlm_accelerator.get_accelerator_backend() in [
         AcceleratorType.NPU,
         AcceleratorType.DIPU,
+        AcceleratorType.DITORCH,
     ]:
         assert (
             gpc.config.data.use_packed_dataset is False
@@ -411,6 +412,7 @@ def args_sanity_check():
     if internlm_accelerator.get_accelerator_backend() in [
         AcceleratorType.NPU,
         AcceleratorType.DIPU,
+        AcceleratorType.DITORCH,
     ]:
         assert (
             gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
