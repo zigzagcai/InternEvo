@@ -107,6 +107,7 @@ LINEAR2NEWLINEAR_NAME_MAPPING = dict(
     down_proj="w2",
     up_proj="w3",
     lm_head="head",
+    W_pack="wqkv",
 )
 
 logger = get_logger(__file__)
@@ -124,6 +125,10 @@ def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
 
 
 def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
+    def _check_module_pure_dp_wdp(name, module):  # pylint: disable=W0613
+        for param in module.parameters():
+            setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
+
     def _check_module(name, module):
         # layer_norm
         if isinstance(module, (RMSNorm, nn.LayerNorm)):
@@ -172,9 +177,16 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
     for _chunk in unwrap_naive_amp(model):
+        # special case for pure dp or pure wdp mode
+        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) or gpc.get_world_size(
+            ParallelMode.WEIGHT_DATA
+        ) == gpc.get_world_size(ParallelMode.GLOBAL):
+            _check_module_func = _check_module_pure_dp_wdp
+        else:
+            _check_module_func = _check_module
         # set param parallel attribute
         for name, module in _chunk.named_modules():
-            _check_module(name, module)
+            _check_module_func(name, module)
 
         for name, param in _chunk.named_parameters():
             assert (
@@ -873,27 +885,36 @@ def inject_norm(model: nn.Module, inject=False, interactive=False) -> None:
 
 
 def inject_config(model: nn.Module) -> None:
-    gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = model.config.vocab_size
-    gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = model.config.hidden_size
-    gpc.config.model.num_layers = gpc.config.NUM_LAYER = model.config.num_hidden_layers
-    gpc.config.model.num_attention_heads = gpc.config.NUM_ATTENTION_HEAD = model.config.num_attention_heads
-    gpc.config.model.mlp_ratio = gpc.config.MLP_RATIO = model.config.intermediate_size / model.config.hidden_size
+    if hasattr(model.config, "text_config"):
+        model_config = model.config.text_config
+    else:
+        model_config = model.config
+    gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = model_config.vocab_size
+    gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = model_config.hidden_size
+    gpc.config.model.num_layers = gpc.config.NUM_LAYER = model_config.num_hidden_layers
+    gpc.config.model.num_attention_heads = gpc.config.NUM_ATTENTION_HEAD = model_config.num_attention_heads
+    gpc.config.model.mlp_ratio = gpc.config.MLP_RATIO = model_config.intermediate_size / model_config.hidden_size
     # For models that use GQA
-    if hasattr(model.config, "num_key_value_heads"):
-        gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model.config.num_key_value_heads
+    if hasattr(model_config, "num_key_value_heads"):
+        gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model_config.num_key_value_heads
 
 
-def inject_model_helper(model: nn.Module, inject_info: Optional[Dict] = None) -> None:
-    inject = False
-    interactive = False
-    modules = []
-    reset_params = False
-
+def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Optional[Dict] = None) -> None:
+    # get inject_info
     if inject_info is not None:
         inject = inject_info.get("inject", False)
         interactive = inject_info.get("interactive", False)
         modules = inject_info.get("modules", [])
         reset_params = inject_info.get("reset_params", False)
+        extra_linear2newlinear = inject_info.get("extra_linear2newlinear", {})
+    else:
+        inject = False
+        interactive = False
+        modules = []
+        reset_params = False
+        extra_linear2newlinear = {}
+
+    LINEAR2NEWLINEAR_NAME_MAPPING.update(extra_linear2newlinear)
 
     inject_funcs = {
         "embed": inject_embed,
@@ -901,15 +922,26 @@ def inject_model_helper(model: nn.Module, inject_info: Optional[Dict] = None) ->
         "norm": inject_norm,
     }
 
-    for mod in modules:
-        inject_funcs[mod](model, inject, interactive)
+    if not isinstance(model, nn.ModuleList):
+        model = [model]
 
+    # inject modules
+    for _chunk in model:
+        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) or gpc.get_world_size(
+            ParallelMode.WEIGHT_DATA
+        ) == gpc.get_world_size(ParallelMode.GLOBAL):
+            continue
+        for mod in modules:
+            inject_funcs[mod](_chunk, inject, interactive)
+
+    # reset parameters
+    for _chunk in model:
+        if inject and reset_params:
+            _chunk.reset_parameters()
+
+    # inject configs
     if inject:
-        if reset_params:
-            model.reset_parameters()
-
-        inject_config(model)
-
+        inject_config(model[0])
         if gpc.is_rank_for_log():
             logger.info(
                 f"inject is enabled, please check the model carefully, "
