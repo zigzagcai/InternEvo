@@ -38,7 +38,10 @@ def _convert_cu_seqlens_for_qksplited(kwargs: Dict):
 def split_fused_wqkv_weight(wqkv, *args, **kwargs):  # pylint: disable=W0613
     q_dim = kwargs["q_dim"]
     kv_dim = kwargs["kv_dim"]
-    wq, wk, wv = torch.split(wqkv, [q_dim, kv_dim, kv_dim], dim=0)
+    split_size = [q_dim, kv_dim, kv_dim]
+    assert (q_dim + 2 * kv_dim) % wqkv.size(0) == 0
+    divisor = (q_dim + 2 * kv_dim) // wqkv.size(0)
+    wq, wk, wv = torch.split(wqkv, [x // divisor for x in split_size], dim=0)
     return wq, wk, wv
 
 
