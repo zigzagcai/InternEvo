@@ -106,7 +106,7 @@ class TrainerBuilder(Trainer):
         check_cuda_env()
 
         # set torch expandable_segments
-        enable_pytorch_expandable_segments()
+        # enable_pytorch_expandable_segments()
 
         # initialize loss function
         criterion = self._initialize_criterion()

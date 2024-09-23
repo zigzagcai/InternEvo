@@ -45,6 +45,9 @@ def zigzag_double_ring_flash_attn_forward(
             dropout_p,
             softmax_scale,
             causal=causal,
+            window_size=window_size,
+            alibi_slopes=alibi_slopes,
+            attn_mask=None,
             return_softmax=True and dropout_p > 0,
         )
         return block_out, block_lse
@@ -135,8 +138,8 @@ def zigzag_double_ring_flash_attn_forward(
                     v = next_v
         return out, lse
 
-    window_size = gpc.config.parallel.sequence_2D.get("window_size", 1)
-    window_num = ring_comm.world_size // window_size
+    sliding_window_size = gpc.config.parallel.sequence_2D.get("window_size", 1)
+    window_num = ring_comm.world_size // sliding_window_size
 
     local_k = k
     local_v = v
@@ -216,6 +219,10 @@ def zigzag_double_ring_flash_attn_backward(
             dropout_p,
             softmax_scale,
             causal,
+            window_size=window_size,
+            alibi_slopes=alibi_slopes,
+            attn_mask=None,
+            deterministic=deterministic,
         )
 
     def _first_window_backward(dout, q, k, v, out, softmax_lse):
@@ -299,8 +306,8 @@ def zigzag_double_ring_flash_attn_backward(
                     dk_comm_buffer, dv_comm_buffer = dk, dv
                     dk, dv = next_dk, next_dv
 
-                if step == 0:
-                    inter_window_dkv_comm.wait()
+                # if step == 0:
+                #     inter_window_dkv_comm.wait()
 
                 dk += dk_buffer
                 dv += dv_buffer
@@ -334,8 +341,8 @@ def zigzag_double_ring_flash_attn_backward(
                     dk_comm_buffer, dv_comm_buffer = dk, dv
                     dk, dv = next_dk, next_dv
 
-                if step == 0:
-                    inter_window_dkv_comm.wait()
+                # if step == 0:
+                #     inter_window_dkv_comm.wait()
 
                 dk[:, :block_seq_len] += dk_buffer[:, :block_seq_len]
                 dv[:, :block_seq_len] += dv_buffer[:, :block_seq_len]
@@ -353,8 +360,8 @@ def zigzag_double_ring_flash_attn_backward(
 
         return dq.to(q.dtype), next_dk.to(q.dtype), next_dv.to(q.dtype)
 
-    window_size = gpc.config.parallel.sequence_2D.get("window_size", 1)
-    window_num = context_comm.world_size // window_size
+    sliding_window_size = gpc.config.parallel.sequence_2D.get("window_size", 1)
+    window_num = context_comm.world_size //sliding_window_size
 
     local_k = k
     local_v = v
@@ -372,7 +379,7 @@ def zigzag_double_ring_flash_attn_backward(
             kv_comm.commit()
 
         if j > 0:
-            # dkv_comm.wait()
+            dkv_comm.wait()
             dk = next_dk
             dv = next_dv
 

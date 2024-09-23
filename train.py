@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+import torch
+
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer_builder import TrainerBuilder
 from internlm.data import (
@@ -15,6 +17,8 @@ from internlm.utils.common import parse_args
 
 @internevo_monitor(feishu_alert=True, clean_run=True)
 def main(args):
+    torch.cuda.set_per_process_memory_fraction(fraction=0.95)
+
     # initialize model
     model = create_model(model_type=gpc.config.model_type)
 
@@ -25,7 +29,9 @@ def main(args):
     val_dls = build_valid_loader_with_data_type()
 
     # build trainer
-    trainer = TrainerBuilder(model, train_dl, val_dls, **(vars(args) | {"dataset_types": dataset_types}))
+    # trainer = TrainerBuilder(model, train_dl, val_dls, **(vars(args) | {"dataset_types": dataset_types}))
+    merged_args = {**vars(args), "dataset_types": dataset_types}
+    trainer = TrainerBuilder(model, train_dl, val_dls, **merged_args)
 
     # training
     trainer.fit()
