@@ -639,6 +639,12 @@ def new_linear(
             dtype,
             is_expert,
         )
+    elif split_mode == "gate":
+        return nn.Linear(
+            in_features,
+            out_features,
+            bias,
+        )
     else:
         err_msg = (
             f"Parallel strategies for linear is unsupported, which is named as {name}.\n"
