@@ -151,6 +151,10 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
         # for moe linear module
+        if isinstance(module, nn.Linear) and not isinstance(module, ParallelLinearWithCommExt):
+            for param in module.parameters():
+                setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
+
         if isinstance(module, Experts):
             for param in module.parameters():
                 if (
@@ -178,7 +182,7 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
 
     for _chunk in unwrap_naive_amp(model):
         # special case for pure dp or pure wdp mode
-        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) or gpc.get_world_size(
+        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) and gpc.get_world_size(
             ParallelMode.WEIGHT_DATA
         ) == gpc.get_world_size(ParallelMode.GLOBAL):
             _check_module_func = _check_module_pure_dp_wdp
@@ -927,7 +931,7 @@ def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Opt
 
     # inject modules
     for _chunk in model:
-        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) or gpc.get_world_size(
+        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) and gpc.get_world_size(
             ParallelMode.WEIGHT_DATA
         ) == gpc.get_world_size(ParallelMode.GLOBAL):
             continue

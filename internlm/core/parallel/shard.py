@@ -159,7 +159,7 @@ def get_parallel_strategies_split_mode(linear_name: str) -> str:
     if linear_name in ("head", "output"):
         return "head"
     if linear_name in ("gate"):
-        return "head"  # for MoE model
+        return "gate"  # for MoE model
     elif linear_name in ("wqkv", "wq", "wk", "wv", "wkv", "w1", "w3", "w13"):
         return "column"
     elif linear_name in ("fc1", "fc2", "linear_1", "linear_2"):  # for vit model
