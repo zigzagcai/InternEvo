@@ -78,7 +78,7 @@ LAUNCHER=" \
        --node_rank ${NODE_RANK} \
        --master_addr ${MASTER_ADDR} \
        --master_port ${MASTER_PORT} \
-       /share/work/huangting/InternEvo/train.py --config /share/work/huangting/InternEvo/configs/7B_isp_sft.py --launcher "torch"
+       /share/work/huangting/InternEvo/train.py --config /share/work/huangting/InternEvo/configs/70B_isp_sft.py --launcher "torch"
        "
 
 ${LAUNCHER}

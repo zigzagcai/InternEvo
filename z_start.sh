@@ -13,7 +13,7 @@ cd /share/work/huangting/InternEvo
 #    docker load -i /share/work/huangting/mxc500-torch2.1-py310-mc2.24.0.5-ubuntu22.04-amd64.container
 
 # /opt/maca/ompi/bin/mpirun -hostfile ${HOST_FILE} -np ${NNODES} \
-#    docker stop ht_test
+#    docker stop ht_test_0927
 
 # /opt/maca/ompi/bin/mpirun -hostfile ${HOST_FILE} -np ${NNODES} \
 #    docker run -itd \
@@ -26,7 +26,7 @@ cd /share/work/huangting/InternEvo
 #                 --device=/dev/infiniband \
 #                 --privileged=true \
 #                 --group-add=video \
-#                 --name ht_test_0915 \
+#                 --name ht_test_0927 \
 #                 --security-opt seccomp=unconfined \
 #                 --security-opt apparmor=unconfined \
 #                 --shm-size 160gb \
@@ -36,8 +36,8 @@ cd /share/work/huangting/InternEvo
 #                 --network host \
 #                 mxc500-torch2.1-py310:mc2.24.0.5-ubuntu22.04-amd64 /bin/bash
 
-# /opt/maca/ompi/bin/mpirun -hostfile ${HOST_FILE} -np ${NNODES} \
-#    docker exec ht_test_0915 /bin/bash -c "/share/work/sh/work/soft/test/kill.sh"
+/opt/maca/ompi/bin/mpirun -hostfile ${HOST_FILE} -np ${NNODES} \
+   docker exec ht_test_0927 /bin/bash -c "/share/work/sh/work/soft/test/kill.sh"
 
-# /opt/maca/ompi/bin/mpirun -hostfile ${HOST_FILE} -np ${NNODES} -output-filename logs/llama2_7B \
-#    docker exec ht_test_0915 /bin/bash -c "bash /share/work/huangting/InternEvo/train_70B.sh ${NNODES} ${HOST_FILE}" #2>&1|tee ht.log
+/opt/maca/ompi/bin/mpirun -hostfile ${HOST_FILE} -np ${NNODES} -output-filename logs/llama2_7B \
+   docker exec ht_test_0927 /bin/bash -c "bash /share/work/huangting/InternEvo/train_70B.sh ${NNODES} ${HOST_FILE}" #2>&1|tee ht.log
