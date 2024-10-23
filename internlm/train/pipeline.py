@@ -555,7 +555,6 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
 
     Returns: A batch data and the updated train_iter.
     """
-
     timer("batch-gen").start()
     try:
         batch = next(train_iter)  # structure is ({'input_ids': Tensor, 'cu_seqlens': Tensor}, Tensor)
@@ -571,7 +570,6 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
             train_state.batch_sampler_iter = iter(train_state.batch_sampler)
             next(train_state.batch_sampler_iter)
     timer("batch-gen").stop()
-
     if batch[0].get("type_ids", None) is not None:
         # if use_packed_dataset is False, we need to unpack type_ids
         if not gpc.config.data.use_packed_dataset:

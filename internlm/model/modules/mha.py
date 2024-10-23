@@ -397,6 +397,7 @@ class GQA(nn.Module):
         dtype (Optional[torch.dtype]): The type of data.
         qk_interleaved (Optional[bool]): whether the odd and even columns of wq and wk is interleaved. True by default.
         enable_qkv_fusion (bool): whether wq, wk and wv lienar is fused. True by default.
+        qk_norm (Optional[bool]): if set, the query and key will be applied by layer norm after qk_linear. False by default.
     """
 
     def __init__(
@@ -419,6 +420,7 @@ class GQA(nn.Module):
         dtype: Optional[torch.dtype] = None,
         qk_interleaved: Optional[bool] = True,
         enable_qkv_fusion: bool = True,
+        qk_norm: bool = False
     ) -> None:
         super().__init__()
         self.layer_idx = layer_idx
@@ -459,6 +461,10 @@ class GQA(nn.Module):
                 rotary_type="dynamic_ntk" if self.use_dynamic_ntk_rope else "native",
             )
 
+        self.qk_norm = qk_norm
+        if qk_norm:
+            assert enable_qkv_fusion is False, "qk_norm cannot be applied when fused wqkv"
+
         if enable_qkv_fusion:
             assert bias is False, "Fuesd wqkv only support bias is False."
             self.wqkv = new_linear("wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, **factory_kwargs)
@@ -470,6 +476,9 @@ class GQA(nn.Module):
             self.wq = new_linear("wq", embed_dim, q_dim, bias, **factory_kwargs)
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
+            if qk_norm:
+                self.q_norm = nn.LayerNorm(q_dim)
+                self.k_norm = nn.LayerNorm(self.kv_dim)
 
         self.inner_attn = SelfAttention(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
@@ -508,6 +517,9 @@ class GQA(nn.Module):
             q = rearrange(q, "b s h gs d -> b s (h gs) d")
         else:
             q, k, v = self.wq(x), self.wk(x), self.wv(x)
+            if self.qk_norm:
+                q = self.q_norm(q)
+                k = self.k_norm(k)
             q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
             k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
             v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
@@ -584,6 +596,9 @@ class GQA(nn.Module):
             q = rearrange(q, "b s h gs d -> b s (h gs) d")
         else:
             q, k, v = self.wq(x), self.wk(x), self.wv(x)
+            if qk_norm:
+                q = self.q_norm(q)
+                k = self.k_norm(k)
             q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
             k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
             v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)

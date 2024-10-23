@@ -254,7 +254,6 @@ class TrainerBuilder(Trainer):
         """
         self.train()
         train_iter = iter(self.train_dl)
-
         with initialize_llm_profile(profiling=self.profiling, start_time=self.current_time) as prof:
             gc.disable()
             for batch_count in range(self.train_state.batch_count, gpc.config.data.total_steps):

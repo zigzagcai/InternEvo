@@ -11,6 +11,7 @@ def get_train_state(dataloader):
         DataType.streaming.name,
         DataType.megatron.name,
         DataType.mocked.name,
+        DataType.lumina_pickle.name,
     ]:
         train_state = TrainState(gpc.config, dataloader.batch_sampler)
     else:
