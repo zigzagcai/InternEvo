@@ -10,7 +10,9 @@ from einops import rearrange
 from torch import nn
 from torch.nn import functional as F
 
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.parallel.comm.utils import gather_forward_split_backward, split_forward_gather_backward
 from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import update_kv_cache
@@ -518,8 +520,14 @@ class GQA(nn.Module):
         else:
             q, k, v = self.wq(x), self.wk(x), self.wv(x)
             if self.qk_norm:
-                q = self.q_norm(q)
-                k = self.k_norm(k)
+                q_all = gather_forward_split_backward(q, ParallelMode.TENSOR, dim=-1)
+                q_norm_out = self.q_norm(q_all)
+                q = split_forward_gather_backward(q_norm_out, ParallelMode.TENSOR, dim=-1)
+
+                k_all = gather_forward_split_backward(k, ParallelMode.TENSOR, dim=-1)
+                k_norm_out = self.k_norm(k_all)
+                k = split_forward_gather_backward(k_norm_out, ParallelMode.TENSOR, dim=-1)
+
             q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
             k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
             v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
@@ -597,8 +605,14 @@ class GQA(nn.Module):
         else:
             q, k, v = self.wq(x), self.wk(x), self.wv(x)
             if qk_norm:
-                q = self.q_norm(q)
-                k = self.k_norm(k)
+                q_all = gather_forward_split_backward(q, ParallelMode.TENSOR, dim=-1)
+                q_norm_out = self.q_norm(q_all)
+                q = split_forward_gather_backward(q_norm_out, ParallelMode.TENSOR, dim=-1)
+
+                k_all = gather_forward_split_backward(k, ParallelMode.TENSOR, dim=-1)
+                k_norm_out = self.k_norm(k_all)
+                k = split_forward_gather_backward(k_norm_out, ParallelMode.TENSOR, dim=-1)
+
             q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
             k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
             v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
