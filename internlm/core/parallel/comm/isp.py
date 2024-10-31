@@ -488,8 +488,8 @@ class ISPCommunicator(WPCommunicator):
         self._wait_handle(module)
 
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
-        self._clear_handle(module)
         if not ((self._module_to_index[module] < self._ckpt_block_num) and self.is_forward is False):
+            self._clear_handle(module)
             self._clear_weight(module)
 
     def _pre_backward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
@@ -691,12 +691,6 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         # accumulate left gradients in last bucket after backward.
         if self._isp_communicator and self._isp_communicator.overlap:
             self._zero_optim.accumulate_left_grads_after_backward()
-
-            if (
-                getattr(gpc.config.parallel["pipeline"], "mode", "1F1B").upper() in ["ZBV", "ZBH1"]
-                and not self._zero_optim.skip_grad_reduce
-            ):
-                self._zero_optim.reduce_left_grads_after_backward()
 
     def post_helper_func(self, scheduler, outputs, label) -> None:  # pylint: disable=W0613
         pass
