@@ -297,6 +297,12 @@ class WPFusedDenseFunc(torch.autograd.Function):
             if grad_bias is not None:
                 grad_bias_sync.wait()
 
+        if grad_weight.shape != weight.shape:
+
+            import pdb
+
+            pdb.set_trace()
+
         return grad_input, grad_weight, grad_bias, None, None, None, None
 
 
@@ -465,6 +471,7 @@ class GroupedGemmWPFusedDenseFunc(torch.autograd.Function):
                 grad_input, grad_weight = gmm_backward_op(x, grad_output, batch_sizes, input_weight=total_weight)
             else:
                 grad_weight = torch.matmul(x.transpose(-1, -2), grad_output)
+
             grad_weight = grad_weight.view(-1, grad_weight.shape[-1])
             grad_weight, grad_weight_sync = communicator.grad_hook(
                 grad_weight, async_op=True, module=module, is_bias=False
@@ -576,6 +583,7 @@ class ParallelLinearWithCommExt(nn.Linear):
         device: torch.device = None,
         dtype: torch.dtype = None,
         split_mode: str = "none",
+        layer_idx: int = 0,
     ) -> None:
         assert split_mode in ("none", "column", "row"), f"unknown split_mode {split_mode}"
 
@@ -591,12 +599,15 @@ class ParallelLinearWithCommExt(nn.Linear):
             # The first @mod ranks get @div + 1 copies, the rest get @div copies
             local_multiple = div + int(rank < mod)
 
-        if split_mode == "column":
-            super().__init__(in_features, local_multiple * multiple_of, bias=bias, device=device, dtype=dtype)
-        elif split_mode == "row":
-            super().__init__(local_multiple * multiple_of, out_features, bias=bias, device=device, dtype=dtype)
-        else:
+        if layer_idx % gpc.config.parallel.weight.get("per_layer_num", 1) != 0:
             super().__init__(in_features, out_features, bias=bias, device=device, dtype=dtype)
+        else:
+            if split_mode == "column":
+                super().__init__(in_features, local_multiple * multiple_of, bias=bias, device=device, dtype=dtype)
+            elif split_mode == "row":
+                super().__init__(local_multiple * multiple_of, out_features, bias=bias, device=device, dtype=dtype)
+            else:
+                super().__init__(in_features, out_features, bias=bias, device=device, dtype=dtype)
 
     def forward(self, input: torch.Tensor, batch_sizes: torch.Tensor = None) -> torch.Tensor:  # pylint: disable=W0622
         _class_name = self.__class__.__name__
@@ -644,13 +655,21 @@ class ColumnParallelLinear(ParallelLinearWithCommExt):
         device: torch.device = None,
         dtype: torch.dtype = None,
         is_expert: bool = False,
+        layer_idx: int = 0,
     ) -> None:
         if out_features % multiple_of:
             raise ValueError(f"out_features ({out_features}) must be a multiple of {multiple_of}")
 
         parallel_mode = get_tensor_split_parallel_mode(is_expert=is_expert)
         super().__init__(
-            in_features, out_features, parallel_mode, bias=bias, device=device, dtype=dtype, split_mode="column"
+            in_features,
+            out_features,
+            parallel_mode,
+            bias=bias,
+            device=device,
+            dtype=dtype,
+            split_mode="column",
+            layer_idx=layer_idx,
         )
 
 
@@ -825,6 +844,7 @@ class GroupedParallelLinearWithCommExt(ParallelLinearWithCommExt):
         device: torch.device = None,
         dtype: torch.dtype = None,
         split_mode: str = "none",
+        layer_idx: int = 0,
     ) -> None:
         nn.Module.__init__(self)
 
@@ -843,20 +863,25 @@ class GroupedParallelLinearWithCommExt(ParallelLinearWithCommExt):
             # The first @mod ranks get @div + 1 copies, the rest get @div copies
             local_multiple = div + int(rank < mod)
 
-        if split_mode == "column":
-            self.weight = nn.Parameter(
-                torch.empty(num_groups, in_features, local_multiple * multiple_of, device=device, dtype=dtype)
-            )
-        elif split_mode == "row":
-            self.weight = nn.Parameter(
-                torch.empty(num_groups, local_multiple * multiple_of, out_features, device=device, dtype=dtype)
-            )
-        elif split_mode == "weight":
-            self.weight = nn.Parameter(
-                torch.empty(local_multiple * multiple_of, out_features, device=device, dtype=dtype)
-            )
-        else:  # none
-            self.weight = nn.Parameter(torch.empty(num_groups, in_features, out_features, device=device, dtype=dtype))
+        if layer_idx % gpc.config.parallel.weight.get("per_layer_num", 1) != 0:
+            self.weight = nn.Parameter(torch.empty(num_groups * in_features, out_features, device=device, dtype=dtype))
+        else:
+            if split_mode == "column":
+                self.weight = nn.Parameter(
+                    torch.empty(num_groups, in_features, local_multiple * multiple_of, device=device, dtype=dtype)
+                )
+            elif split_mode == "row":
+                self.weight = nn.Parameter(
+                    torch.empty(num_groups, local_multiple * multiple_of, out_features, device=device, dtype=dtype)
+                )
+            elif split_mode == "weight":
+                self.weight = nn.Parameter(
+                    torch.empty(local_multiple * multiple_of, out_features, device=device, dtype=dtype)
+                )
+            else:  # none
+                self.weight = nn.Parameter(
+                    torch.empty(num_groups, in_features, out_features, device=device, dtype=dtype)
+                )
 
         self.register_parameter("bias", None)
         torch.nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
@@ -955,6 +980,7 @@ class GroupedWPLinear(GroupedParallelLinearWithCommExt):
         device: torch.device = None,
         dtype: torch.dtype = None,
         is_expert: bool = True,
+        layer_idx: int = 0,
     ):
         parallel_mode = get_tensor_split_parallel_mode(is_expert=is_expert)
         super().__init__(
@@ -966,6 +992,7 @@ class GroupedWPLinear(GroupedParallelLinearWithCommExt):
             device=device,
             dtype=dtype,
             split_mode="weight",
+            layer_idx=layer_idx,
         )
 
         self.full_weight_shape = torch.Size((num_groups, in_features, out_features))
@@ -983,6 +1010,7 @@ def new_linear(
     weight_scale: int = 1,
     norm_head: bool = False,
     is_expert: bool = False,
+    layer_idx: int = 0,
     **kwargs,
 ) -> nn.Linear:
 
@@ -1028,6 +1056,7 @@ def new_linear(
             device,
             dtype,
             is_expert,
+            layer_idx=layer_idx,
         )
     elif split_mode == "row":
         return RowParallelLinear(
@@ -1048,6 +1077,7 @@ def new_linear(
             device,
             dtype,
             is_expert,
+            layer_idx=layer_idx,
         )
     elif split_mode == "grouped_column":
         return GroupedColumnLinear(

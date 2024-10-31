@@ -130,6 +130,7 @@ class Internlm1MoEDecoder(nn.Module):
                 multiple_of=multiple_of,
                 # TODO: to support more activation functions
                 activation_type="swiglu" if use_swiglu else "swiglu",
+                layer_idx=layer_idx,
             )
         else:
             # replace mlp by MoE module. The expert in MoE is a FeedForward module.
@@ -148,6 +149,7 @@ class Internlm1MoEDecoder(nn.Module):
                 multiple_of=multiple_of,
                 # TODO: to support more activation functions
                 activation_type="swiglu" if use_swiglu else "swiglu",
+                layer_idx=layer_idx,
             )
 
         self.use_swiglu = use_swiglu

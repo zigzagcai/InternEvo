@@ -4,6 +4,7 @@ https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/moe/experts.py
  Git commit hash: f3943cf9109226ed3ecf2d5dbb639a11cd925555
  We retain the following license from the original files:
 """
+
 import math
 from typing import Callable, Dict, Optional, Tuple
 
@@ -153,6 +154,7 @@ class DroplessMoELayer(BaseMoELayer):
         token_dispatch_policy: str = "alltoall",
         use_grouped_mlp: bool = True,
         deterministic_mode: bool = False,
+        layer_idx: int = 0,
     ) -> None:
         assert noisy_gate_policy is None or noisy_gate_policy in ["None", "Jitter", "RSample"], (
             "Unsupported noisy_gate_policy: " + noisy_gate_policy
@@ -177,6 +179,7 @@ class DroplessMoELayer(BaseMoELayer):
                 use_grouped_mlp=True,
                 num_groups=num_experts // ep_size,
                 backend=backend,
+                layer_idx=layer_idx,
             )
         else:
             experts = torch.nn.ModuleList(
@@ -192,6 +195,7 @@ class DroplessMoELayer(BaseMoELayer):
                         multiple_of=multiple_of,
                         activation_type=activation_type,
                         is_expert=True,
+                        layer_idx=layer_idx,
                     )
                     for _ in range(num_experts // ep_size)
                 ]

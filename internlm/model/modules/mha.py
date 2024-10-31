@@ -157,17 +157,19 @@ class MHA(nn.Module):
 
         if self.enable_qkv_fusion:
             # bias=True is according to https://spaces.ac.cn/archives/9577
-            self.wqkv = new_linear("wqkv", embed_dim, 3 * embed_dim, bias, **factory_kwargs)
+            self.wqkv = new_linear("wqkv", embed_dim, 3 * embed_dim, bias, **factory_kwargs, layer_idx=layer_idx)
         else:
-            self.wq = new_linear("wq", embed_dim, embed_dim, bias, **factory_kwargs)
-            self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
-            self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
+            self.wq = new_linear("wq", embed_dim, embed_dim, bias, **factory_kwargs, layer_idx=layer_idx)
+            self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs, layer_idx=layer_idx)
+            self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs, layer_idx=layer_idx)
 
         self.inner_attn = SelfAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
         self.inner_cross_attn = CrossAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
 
         # output projection always have the bias (for now) (except for baichuan2 model)
-        self.out_proj = new_linear("out_proj", embed_dim, embed_dim, bias=out_bias, **factory_kwargs)
+        self.out_proj = new_linear(
+            "out_proj", embed_dim, embed_dim, bias=out_bias, **factory_kwargs, layer_idx=layer_idx
+        )
 
     def register_checkpoint_compatibility_hooks(
         self, pre_load_hook: Optional[Callable] = None, pre_save_hook: Optional[Callable] = None
@@ -461,15 +463,17 @@ class GQA(nn.Module):
 
         if enable_qkv_fusion:
             assert bias is False, "Fuesd wqkv only support bias is False."
-            self.wqkv = new_linear("wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, **factory_kwargs)
+            self.wqkv = new_linear(
+                "wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, **factory_kwargs, layer_idx=layer_idx
+            )
             self._register_load_state_dict_pre_hook(
                 partial(_qkv_pre_load_convert, q_dim=q_dim, kv_dim=self.kv_dim), with_module=True
             )
             self._register_state_dict_hook(partial(_qkv_save_convert, q_dim=q_dim, kv_dim=self.kv_dim))
         else:
-            self.wq = new_linear("wq", embed_dim, q_dim, bias, **factory_kwargs)
-            self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
-            self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
+            self.wq = new_linear("wq", embed_dim, q_dim, bias, **factory_kwargs, layer_idx=layer_idx)
+            self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs, layer_idx=layer_idx)
+            self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs, layer_idx=layer_idx)
 
         self.inner_attn = SelfAttention(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
@@ -478,7 +482,7 @@ class GQA(nn.Module):
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
         )
 
-        self.wo = new_linear("wo", q_dim, embed_dim, bias, **factory_kwargs)
+        self.wo = new_linear("wo", q_dim, embed_dim, bias, **factory_kwargs, layer_idx=layer_idx)
 
     def register_checkpoint_compatibility_hooks(
         self, pre_load_hook: Optional[Callable] = None, pre_save_hook: Optional[Callable] = None

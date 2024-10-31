@@ -64,6 +64,7 @@ class MoEBase(torch.nn.Module):
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
         activation_type: str = "swiglu",
+        layer_idx: int = 0,
     ):
 
         super().__init__()
@@ -88,6 +89,7 @@ class MoEBase(torch.nn.Module):
             mlp_layer_fusion=mlp_layer_fusion,
             multiple_of=multiple_of,
             activation_type=activation_type,
+            layer_idx=layer_idx,
             **moe_layer_kwargs,
         )
         set_fp32_attr_to_module(self.moe_layer.gate)
@@ -105,6 +107,7 @@ class MoEBase(torch.nn.Module):
                 mlp_layer_fusion=mlp_layer_fusion,
                 multiple_of=multiple_of,
                 activation_type=activation_type,
+                layer_idx=layer_idx,
             )
             # coefficient is used for weighted sum of the output of expert and residual mlp
             self.coefficient = torch.nn.Linear(in_features, 2)
@@ -146,6 +149,7 @@ class MoE(MoEBase):
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
         activation_type: str = "swiglu",
+        layer_idx: int = 0,
     ):
         super().__init__(
             in_features=in_features,
@@ -160,6 +164,7 @@ class MoE(MoEBase):
             mlp_layer_fusion=mlp_layer_fusion,
             multiple_of=multiple_of,
             activation_type=activation_type,
+            layer_idx=layer_idx,
         )
 
         if self.num_shared_experts > 0:

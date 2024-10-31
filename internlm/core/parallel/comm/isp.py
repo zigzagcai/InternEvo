@@ -24,6 +24,7 @@ from internlm.core.parallel.comm.utils import (
     apply_to_tensors_only,
     expandKVPacked,
     reduce_scatter_raw,
+    all_reduce_raw,
 )
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import ParallelLinearWithCommExt
@@ -314,6 +315,8 @@ class ISPCommunicator(WPCommunicator):
         self.model_conf = model_conf
         self.is_moe = is_moe
         self.is_forward = True
+        self.per_layer_num = gpc.config.parallel.weight.get("per_layer_num", 1)
+        self.per_release_layer_num = gpc.config.parallel.weight.get("per_release_layer_num", 1)
         self.reduce_scatter_handlers = {}
         self._module_shapes = {}
         self._forward_prefetch_prerequisites = []
@@ -363,13 +366,39 @@ class ISPCommunicator(WPCommunicator):
         children_name = get_model(model).named_children()
         for _, children in children_name:
             if isinstance(children, nn.ModuleList):
-                self._overlap_states[cid].ckpt_block_num = int(self.model_conf.activation_checkpointing * len(children))
+                self._overlap_states[cid].ckpt_block_num = (
+                    int(self.model_conf.activation_checkpointing * len(children)) // self.per_layer_num
+                )
 
                 for idx, block in enumerate(children):
+                    for name, child in block.named_modules():
+                        if isinstance(child, (ParallelLinearWithCommExt)):
+                            full_name = f"{cid}.{idx}.{name}"
+                            setattr(
+                                child.weight,
+                                "isp_reduce_scatter_name",
+                                f"{full_name}.weight",
+                            )
+                            if child.bias is not None:
+                                setattr(
+                                    child.bias,
+                                    "isp_reduce_scatter_name",
+                                    f"{full_name}.bias",
+                                )
+                            setattr(child, "isp_layer_idx", idx)
+
+                    if idx % self.per_layer_num != 0:
+                        continue
+
+                    if gpc.get_global_rank() == 0:
+                        print(f"wp layer idx:{idx}", flush=True)
+                    idx = idx // self.per_layer_num
+
                     self._overlap_states[cid].index_to_isp_modules[idx] = []
                     self._overlap_states[cid].index_to_block[idx] = block
                     for name, child in block.named_modules():
-                        if name.split(".")[-1] in ["out_proj", "wo"]:
+                        # if name.split(".")[-1] in ["out_proj", "wo"]:
+                        if name.split(".")[-1] in ["wqkv", "wq"]:
                             self._overlap_states[cid].isp_outs.append(child)
                             self._overlap_states[cid].module_to_index[child] = idx
                         if isinstance(child, (ParallelLinearWithCommExt)):
@@ -387,18 +416,18 @@ class ISPCommunicator(WPCommunicator):
 
                             setattr(child, "isp_name", name)
 
-                            full_name = f"{cid}.{idx}.{name}"
-                            setattr(
-                                child.weight,
-                                "isp_reduce_scatter_name",
-                                f"{full_name}.weight",
-                            )
-                            if child.bias is not None:
-                                setattr(
-                                    child.bias,
-                                    "isp_reduce_scatter_name",
-                                    f"{full_name}.bias",
-                                )
+                            # full_name = f"{cid}.{idx}.{name}"
+                            # setattr(
+                            #     child.weight,
+                            #     "isp_reduce_scatter_name",
+                            #     f"{full_name}.weight",
+                            # )
+                            # if child.bias is not None:
+                            #     setattr(
+                            #         child.bias,
+                            #         "isp_reduce_scatter_name",
+                            #         f"{full_name}.bias",
+                            #     )
 
         self._overlap_states[cid].num_blocks = len(self._overlap_states[cid].index_to_isp_modules)
 
@@ -407,21 +436,23 @@ class ISPCommunicator(WPCommunicator):
 
         # submit the all-gather communication for weight and bias.
         if with_bias:
-            bias_output, bias_handle = all_gather_raw(
-                module.bias,
+            if module not in self._bias_global_output:
+                bias_output, bias_handle = all_gather_raw(
+                    module.bias,
+                    self.process_group,
+                    async_op=True,
+                )
+                self._bias_global_handle[module] = bias_handle
+                self._bias_global_output[module] = bias_output
+
+        if module not in self._weight_global_output:
+            weight_output, weight_handle = all_gather_raw(
+                module.weight,
                 self.process_group,
                 async_op=True,
             )
-            self._bias_global_handle[module] = bias_handle
-            self._bias_global_output[module] = bias_output
-
-        weight_output, weight_handle = all_gather_raw(
-            module.weight,
-            self.process_group,
-            async_op=True,
-        )
-        self._weight_global_handle[module] = weight_handle
-        self._weight_global_output[module] = weight_output
+            self._weight_global_handle[module] = weight_handle
+            self._weight_global_output[module] = weight_output
 
     def _all_gather_block_weight(self, block_index: int):
         block = self._index_to_block[block_index]
@@ -488,9 +519,11 @@ class ISPCommunicator(WPCommunicator):
         self._wait_handle(module)
 
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
-        self._clear_handle(module)
-        if not ((self._module_to_index[module] < self._ckpt_block_num) and self.is_forward is False):
-            self._clear_weight(module)
+        if int(module.isp_layer_idx) % self.per_release_layer_num == 0:
+            # print(f"ht debug module.isp_layer_idx:{module.isp_layer_idx}", flush=True)
+            self._clear_handle(module)
+            if not ((self._module_to_index[module] < self._ckpt_block_num) and self.is_forward is False):
+                self._clear_weight(module)
 
     def _pre_backward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         # wait handle for current module
@@ -607,9 +640,13 @@ class ISPCommunicator(WPCommunicator):
             result, _ = all_gather_raw(tensor, self.process_group, async_op=async_op)
         elif is_bias:
             assert module is not None, "The module parameter must be specified"
+            if not hasattr(module, "isp_name"):
+                return tensor
             result = self._bias_global_output[module]
         else:
             assert module is not None, "The module parameter must be specified"
+            if not hasattr(module, "isp_name"):
+                return tensor
             result = self._weight_global_output[module]
 
         return result
@@ -630,6 +667,11 @@ class ISPCommunicator(WPCommunicator):
         else:
             assert module is not None, "The module parameter must be specified"
 
+            # if getattr(module.weight, "isp_reduce_scatter_name") == "0.31.mixer.out_proj.weight":
+            #     import pdb
+
+            #     pdb.set_trace()
+
             if is_bias:
                 assert hasattr(module.bias, "isp_reduce_scatter_name")
                 key = getattr(module.bias, "isp_reduce_scatter_name")
@@ -637,12 +679,23 @@ class ISPCommunicator(WPCommunicator):
                 assert hasattr(module.weight, "isp_reduce_scatter_name")
                 key = getattr(module.weight, "isp_reduce_scatter_name")
 
-            self.reduce_scatter_handlers[key] = reduce_scatter_raw(
-                tensor,
-                self.process_group,
-                op=reduce_op,
-                async_op=async_op,
-            )
+            if not hasattr(module, "isp_name"):
+                result, handle = (
+                    self._get_constant_zero(
+                        (
+                            tensor.shape[0],
+                            *tensor.shape[1:],
+                        )
+                    ),
+                    DUMMY_HANDLE_CONST,
+                )
+
+                self.reduce_scatter_handlers[key] = all_reduce_raw(
+                    tensor,
+                    self.process_group,
+                    async_op=async_op,
+                )
+                return result, handle
 
             result, handle = (
                 self._get_constant_zero(
@@ -652,6 +705,13 @@ class ISPCommunicator(WPCommunicator):
                     )
                 ),
                 DUMMY_HANDLE_CONST,
+            )
+
+            self.reduce_scatter_handlers[key] = reduce_scatter_raw(
+                tensor,
+                self.process_group,
+                op=reduce_op,
+                async_op=async_op,
             )
 
         return result, handle

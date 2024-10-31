@@ -70,6 +70,7 @@ class FeedForward(nn.Module):
         mlp_layer_fusion: Optional[bool] = False,
         activation_type: str = "swiglu",
         is_expert: bool = False,
+        layer_idx: int = 0,
     ):
         super().__init__()
 
@@ -87,23 +88,58 @@ class FeedForward(nn.Module):
             assert bias is False, "Fuesd FeedForward only support bias is False."
 
             self.fused_w1_w3 = new_linear(
-                "w13", in_features, hidden_features * 2, bias, device=device, dtype=dtype, is_expert=is_expert
+                "w13",
+                in_features,
+                hidden_features * 2,
+                bias,
+                device=device,
+                dtype=dtype,
+                is_expert=is_expert,
+                layer_idx=layer_idx,
             )
             self.w2 = new_linear(
-                "w2", hidden_features, out_features, bias, device=device, dtype=dtype, is_expert=is_expert
+                "w2",
+                hidden_features,
+                out_features,
+                bias,
+                device=device,
+                dtype=dtype,
+                is_expert=is_expert,
+                layer_idx=layer_idx,
             )
 
             self._register_load_state_dict_pre_hook(_mlp_pre_load_convert, with_module=True)
             self._register_state_dict_hook(_mlp_save_convert)
         else:
             self.w1 = new_linear(
-                "w1", in_features, hidden_features, bias, device=device, dtype=dtype, is_expert=is_expert
+                "w1",
+                in_features,
+                hidden_features,
+                bias,
+                device=device,
+                dtype=dtype,
+                is_expert=is_expert,
+                layer_idx=layer_idx,
             )
             self.w3 = new_linear(
-                "w3", in_features, hidden_features, bias, device=device, dtype=dtype, is_expert=is_expert
+                "w3",
+                in_features,
+                hidden_features,
+                bias,
+                device=device,
+                dtype=dtype,
+                is_expert=is_expert,
+                layer_idx=layer_idx,
             )
             self.w2 = new_linear(
-                "w2", hidden_features, out_features, bias, device=device, dtype=dtype, is_expert=is_expert
+                "w2",
+                hidden_features,
+                out_features,
+                bias,
+                device=device,
+                dtype=dtype,
+                is_expert=is_expert,
+                layer_idx=layer_idx,
             )
 
     def forward(self, x):
@@ -152,6 +188,7 @@ class GroupedFeedForward(nn.Module):
         num_groups: int = 1,
         backend: str = "bmm",
         is_expert: bool = False,
+        layer_idx: int = 0,
     ):
         super().__init__()
 
@@ -176,6 +213,7 @@ class GroupedFeedForward(nn.Module):
                 num_groups=num_groups,
                 backend=backend,
                 is_expert=is_expert,
+                layer_idx=layer_idx,
             )
             self.w3 = new_linear(
                 "grouped_w3",
@@ -187,6 +225,7 @@ class GroupedFeedForward(nn.Module):
                 num_groups=num_groups,
                 backend=backend,
                 is_expert=is_expert,
+                layer_idx=layer_idx,
             )
             self.w2 = new_linear(
                 "grouped_w2",
@@ -198,6 +237,7 @@ class GroupedFeedForward(nn.Module):
                 num_groups=num_groups,
                 backend=backend,
                 is_expert=is_expert,
+                layer_idx=layer_idx,
             )
 
     def forward(self, x, batch_sizes=None):
@@ -222,6 +262,7 @@ def new_feed_forward(
     activation_type: str = "swiglu",
     is_expert: bool = False,
     use_grouped_mlp: bool = False,
+    layer_idx: int = 0,
     **kwargs,
 ) -> FeedForward:
     if use_grouped_mlp:
@@ -240,6 +281,7 @@ def new_feed_forward(
             num_groups=num_groups,
             backend=backend,
             is_expert=is_expert,
+            layer_idx=layer_idx,
         )
     return FeedForward(
         in_features,
@@ -252,4 +294,5 @@ def new_feed_forward(
         mlp_layer_fusion,
         activation_type,
         is_expert,
+        layer_idx=layer_idx,
     )
