@@ -44,7 +44,7 @@ internlm_accelerator = get_accelerator()
 logger = get_logger(__file__)
 
 
-class ChameleonDecoder(nn.Module):
+class ChameleonDecoderLayer(nn.Module):
     """
     Chameleon Decoder Layer.
 
@@ -80,6 +80,7 @@ class ChameleonDecoder(nn.Module):
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         mlp_layer_fusion (bool): Whether to fuse layers in the mlp module for optimization.
         multiple_of (int): Ensures mlp dimensions are multiples of this value for efficient hardware utilization.
+        qk_norm (bool): Support q norm and k norm.
     """
 
     def __init__(
@@ -112,6 +113,8 @@ class ChameleonDecoder(nn.Module):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        qk_norm = True,
+        chameleon_mp_size = 1,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -144,13 +147,13 @@ class ChameleonDecoder(nn.Module):
             bias=not no_bias,
             rope_base=rope_base,
             enable_qkv_fusion=False,
-            qk_norm=True
+            qk_norm=qk_norm,
+            chameleon_mp_size=chameleon_mp_size,
         )
 
-        self.dropout1 = nn.Dropout(drop_rate)
-        self.dropout2 = nn.Dropout(drop_rate)
-        self.attention_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
-        self.ffn_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
+        self.dropout = nn.Dropout(drop_rate)
+        self.attention_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=False, is_Chameleon=True)
+        self.ffn_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=False, is_Chameleon=True)
 
         self.feed_forward = new_feed_forward(
             hidden_size,
@@ -227,62 +230,49 @@ class ChameleonDecoder(nn.Module):
         """
         if self.prenorm:
 
-            def _dropout_and_norm_attn(_residual, _hidden_states):
-                _dropped = self.dropout1(_hidden_states)
-                _residual = (_dropped + _residual) if _residual is not None else _dropped
-                _hidden_states = self.attention_norm(_residual.to(dtype=self.attention_norm.weight.dtype))
+            residual = hidden_states
 
-                return _residual, _hidden_states
+            hidden_states = self.attention_norm(hidden_states)
 
-            if self.dropout_selective_checkpoint:
-                residual, hidden_states = activation_checkpoint(_dropout_and_norm_attn, False, residual, hidden_states)
-            else:
-                residual, hidden_states = _dropout_and_norm_attn(residual, hidden_states)
+            # def _dropout_and_norm_attn(_residual, _hidden_states):
+            #     _dropped = self.dropout1(_hidden_states)
+            #     _residual = (_dropped + _residual) if _residual is not None else _dropped
+            #     _hidden_states = self.attention_norm(_residual.to(dtype=self.attention_norm.weight.dtype))
 
-            if self.residual_in_fp32:
-                residual = residual.to(torch.float32)
+            #     return _residual, _hidden_states
+
+            # if self.dropout_selective_checkpoint:
+            #     residual, hidden_states = activation_checkpoint(_dropout_and_norm_attn, False, residual, hidden_states)
+            # else:
+            #     residual, hidden_states = _dropout_and_norm_attn(residual, hidden_states)
+
+            # if self.residual_in_fp32:
+            #     residual = residual.to(torch.float32)
 
             attn_kwargs = convert_attn_args_to_kwargs(args, kwargs)
             hidden_states = self.attention(hidden_states, **attn_kwargs)
+            dropped = self.dropout(hidden_states)
+            hidden_states = residual + dropped
 
             if not isinstance(self.feed_forward, nn.Identity):
-                if not self.fused_dropout_add_ln:
-
-                    def _dropout_and_norm_ffn(_residual, _hidden_states):
-                        _dropped = self.dropout2(_hidden_states)
-                        _residual = (_dropped + _residual) if _residual is not None else _dropped
-                        _hidden_states = self.ffn_norm(_residual.to(torch.float32))
-
-                        return _residual, _hidden_states
-
-                    if self.dropout_selective_checkpoint:
-                        residual, hidden_states = activation_checkpoint(
-                            _dropout_and_norm_ffn, False, residual, hidden_states
-                        )
-                    else:
-                        residual, hidden_states = _dropout_and_norm_ffn(residual, hidden_states)
-
-                    if self.residual_in_fp32:
-                        residual = residual.to(torch.float32)
+                residual = hidden_states
+                hidden_states = self.ffn_norm(hidden_states)
                 hidden_states = self.feed_forward(hidden_states)
-
-            return hidden_states + residual
+                dropped = self.dropout(hidden_states)
+                hidden_states = residual + dropped
+            return hidden_states
         else:
             assert residual is None
 
-            mixer_out = self.attention(hidden_states, **kwargs)
-            if self.return_residual:  # mixer out is actually a pair here
-                mixer_out, hidden_states = mixer_out
-            hidden_states = self.attention_norm(self.dropout1(mixer_out) + hidden_states).to(
-                dtype=self.attention_norm.weight.dtype
-            )
+            residual = hidden_states
+            hidden_states = self.attention(hidden_states, **kwargs)
+            hidden_states = self.attention_norm(hidden_states)
+            hidden_states = residual + self.dropout(hidden_states)
             if not isinstance(self.feed_forward, nn.Identity):
-                mlp_out = self.feed_forward(hidden_states)
-                if self.return_residual:  # mlp out is actually a pair here
-                    mlp_out, hidden_states = mlp_out
-                hidden_states = self.ffn_norm((self.dropout2(mlp_out)) + hidden_states).to(
-                    dtype=self.ffn_norm.weight.dtype
-                )
+                residual = hidden_states
+                hidden_states = self.feed_forward(hidden_states)
+                hidden_states = self.ffn_norm(hidden_states)
+                hidden_states = residual + self.dropout(hidden_states)
             return hidden_states
 
 
@@ -380,6 +370,7 @@ class ChameleonModel(BaseModel):
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         mlp_layer_fusion (bool): Whether to fuse layers in the mlp module for optimization.
         multiple_of (int): Ensures mlp dimensions are multiples of this value for efficient hardware utilization.
+        qk_norm (bool): Support q norm and k norm.
     """
 
     def __init__(
@@ -420,6 +411,8 @@ class ChameleonModel(BaseModel):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        qk_norm = True,
+        chameleon_mp_size = 1,
     ):
         super().__init__()
 
@@ -429,7 +422,8 @@ class ChameleonModel(BaseModel):
 
         
         if first:
-            self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
+            self.padding_idx = None
+            self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size, padding_idx=self.padding_idx)
             for _, param in self.tok_embeddings.named_parameters():
                 if init_type == "normal":
                     normal_(std=embedding_init_std)(param)
@@ -438,7 +432,7 @@ class ChameleonModel(BaseModel):
 
         self.layers = nn.ModuleList(
             [
-                ChameleonDecoder(
+                ChameleonDecoderLayer(
                     hidden_size=hidden_size,
                     num_attention_heads=num_attention_heads,
                     num_kv_attention_heads=num_kv_attention_heads,
@@ -467,14 +461,13 @@ class ChameleonModel(BaseModel):
                     rope_base=rope_base,
                     mlp_layer_fusion=mlp_layer_fusion,
                     multiple_of=multiple_of,
+                    qk_norm = qk_norm,
+                    chameleon_mp_size=chameleon_mp_size,
                 )
                 for lid in range(num_layers)
             ]
         )
 
-        self.norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
-
-        '''
         if last:
             if not apply_post_layer_norm:
                 self.norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
@@ -495,7 +488,6 @@ class ChameleonModel(BaseModel):
                     normal_(std=out_head_init_std)(param)
                 else:
                     uniform_(std=out_head_init_std)(param)
-        '''
 
     def forward(self, hidden_states=None, input_ids=None, **kwargs):
         # attention_mask: compute attention on the places where the value is 1
@@ -578,6 +570,19 @@ class ChameleonModel(BaseModel):
                 dim=row_dim,
             )[local_rank]
 
+            state_dict[f"layers.{i}.attention.q_norm.weight"] = state_dict.pop(
+                f"model.layers.{i}.self_attn.q_norm.weight"
+            )
+            state_dict[f"layers.{i}.attention.q_norm.bias"] = state_dict.pop(
+                f"model.layers.{i}.self_attn.q_norm.bias"
+            )
+            state_dict[f"layers.{i}.attention.k_norm.weight"] = state_dict.pop(
+                f"model.layers.{i}.self_attn.k_norm.weight"
+            )
+            state_dict[f"layers.{i}.attention.k_norm.bias"] = state_dict.pop(
+                f"model.layers.{i}.self_attn.k_norm.bias"
+            )
+
             # ffn
             state_dict[f"layers.{i}.feed_forward.w1.weight"] = torch.chunk(
                 state_dict.pop(f"model.layers.{layer_ids}.mlp.gate_proj.weight"),
@@ -613,6 +618,8 @@ class ChameleonModel(BaseModel):
 
             # replace value within decoder layer
             for name in list(state_dict.keys()):
+                if name.startswith(f"model.vqmodel"):
+                    state_dict.pop(name)
                 if name.startswith(f"layers.{i}"):
                     new_state_dict[name.replace(f".{i}.", f".{idx}.")] = state_dict.pop(name)
 
@@ -712,7 +719,7 @@ class ChameleonModel(BaseModel):
             embed_concat_dim = 0
 
         # load states
-        states, num_shards = Llama2.load_sharded_states(src)
+        states, num_shards = ChameleonModel.load_sharded_states(src)
 
         # convert state_dict
         state_dict = {}
@@ -741,6 +748,25 @@ class ChameleonModel(BaseModel):
             state_dict[f"model.layers.{layer_i}.self_attn.o_proj.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.attention.wo.weight"] for i in range(num_shards)], dim=row_dim
             )
+            state_dict.update(
+                {
+                    f"model.layers.{layer_i}.self_attn.q_norm.weight" : states[0][f"layers.{layer_i}.attention.q_norm.weight"].clone(),
+                    f"model.layers.{layer_i}.self_attn.q_norm.bias" : states[0][f"layers.{layer_i}.attention.q_norm.bias"].clone(),
+                    f"model.layers.{layer_i}.self_attn.k_norm.weight" : states[0][f"layers.{layer_i}.attention.k_norm.weight"].clone(),
+                    f"model.layers.{layer_i}.self_attn.k_norm.bias" : states[0][f"layers.{layer_i}.attention.k_norm.bias"].clone(),
+                }
+            )
+            q_norm_weight0 = states[0][f"layers.{layer_i}.attention.q_norm.weight"].clone()
+            q_norm_bias0 = states[0][f"layers.{layer_i}.attention.q_norm.bias"].clone()
+
+            for i in range(num_shards):
+                q_norm_weight = states[i][f"layers.{layer_i}.attention.q_norm.weight"].clone()
+                assert torch.equal(q_norm_weight, q_norm_weight0)
+
+            for i in range(num_shards):
+                q_norm_bias = states[i][f"layers.{layer_i}.attention.q_norm.bias"].clone()
+                assert torch.equal(q_norm_bias, q_norm_bias0)
+
             # ffn
             state_dict[f"model.layers.{layer_i}.mlp.gate_proj.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w1.weight"] for i in range(num_shards)], dim=0
