@@ -128,6 +128,7 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         # gradient clipping
         self._clip_grad_norm = clip_grad_norm
+        self._grad_norm_threshold = zero_cfg.grad_norm_threshold
 
         # need to record the rank in which parameter groups are not assigned parameters.
         self.param_group_has_params = []
@@ -759,6 +760,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         # check for overflow
         found_inf = False
         found_nan = False
+        big_grad_norm = False
         # if there is INF values in grades, compute_norm func would also returns -1
         # thus, we try to avoid call _check_overflow here
         # found_inf = self._check_overflow()
@@ -838,6 +840,22 @@ class HybridZeroOptimizer(BaseOptimizer):
                     list(global_norm_groups.values()),
                     loss_scale,
                 )
+
+        for _, global_norm in global_norm_groups.items():
+            if global_norm > self._grad_norm_threshold * loss_scale:
+                big_grad_norm = True
+                break
+
+        if big_grad_norm:
+            if gpc.is_rank_for_log():
+                logger.warning("grad norm is too big to skip, please check it.")
+                send_alert_message(
+                    address=gpc.config.monitor.alert.feishu_alert_address,
+                    message="grad norm is too big to skip, please check it.",
+                )
+            self._grad_store._averaged_gradients = dict()
+            self.zero_grad()
+            return False, norms
 
         # update the parameters
         timer("step").start()

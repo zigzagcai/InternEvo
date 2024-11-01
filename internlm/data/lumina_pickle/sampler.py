@@ -13,37 +13,8 @@ from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
 
-class LuminaPickleBatchSampler(Sampler):
-    def __init__(
-        self,
-        dataset,
-        micro_batch_size: int,
-        acc_grad: int,
-        shuffle: bool = True,
-        seed: int = 0,
-        length_clustering=True,
-        allow_mixed_task_among_acc=False,
-    ):
-        self.single_sampler = LuminaPickleSampler(dataset, micro_batch_size, acc_grad, shuffle, seed, length_clustering, allow_mixed_task_among_acc)
-        self.num_batches = len(dataset) // micro_batch_size // gpc.get_world_size(ParallelMode.DATA)
-        self.micro_batch_size = micro_batch_size
-
-    def __iter__(self):
-        single_iter = iter(self.single_sampler)
-        for i in range(self.num_batches):
-            ret = [next(single_iter) for _ in range(self.micro_batch_size)]
-            yield ret
-
-    def __len__(self):
-        return self.num_batches
-
-    def copy(self):
-        return copy.deepcopy(self)
-
-
-
 # Modified from https://github.com/Alpha-VLLM/Lumina-mGPT/blob/104abe453ec1acca5863698629c4db2111b0b3fc/xllmx/data/sampler.py#L50
-class LuminaPickleSampler(Sampler):
+class LuminaPickleBatchSampler(Sampler):
     def __init__(
         self,
         dataset,
@@ -68,6 +39,9 @@ class LuminaPickleSampler(Sampler):
 
         assert micro_batch_size is not None
         assert acc_grad is not None
+
+        self.num_batches = len(dataset) // micro_batch_size // gpc.get_world_size(ParallelMode.DATA)
+        self.micro_batch_size = micro_batch_size
 
         self.dataset = dataset
         self.num_replicas = gpc.get_world_size(ParallelMode.DATA)
@@ -177,37 +151,23 @@ class LuminaPickleSampler(Sampler):
 
         assert len(indices) == self.total_size
 
-        own_indices = []
-        for start_pos in range(self.rank * self.micro_batch_size, len(indices), self.num_replicas * self.micro_batch_size):
-            own_indices += indices[start_pos : start_pos + self.micro_batch_size]
-     
-        # subsample
-        assert len(own_indices) == self.num_samples
 
-        if self.start_iter * self.micro_batch_size > len(own_indices):
-            own_indices = []
-        else:
-            own_indices = own_indices[self.start_iter * self.micro_batch_size :]
-        
-        return iter(own_indices)
+        for start_pos in range(self.rank * self.micro_batch_size, len(indices), self.num_replicas * self.micro_batch_size):
+            ret = indices[start_pos : start_pos + self.micro_batch_size]
+            yield ret
 
 
     def __len__(self) -> int:
-        return self.num_samples
+        return self.num_batches
 
-    def set_epoch(self, epoch: int, start_iter: int = 0) -> None:
-        r"""
-        Sets the epoch for this sampler. When :attr:`shuffle=True`, this ensures all replicas
-        use a different random ordering for each epoch. Otherwise, the next iteration of this
-        sampler will yield the same ordering.
-
-        Args:
-            epoch (int): Epoch number.
-            start_iter (int): start iter number.
-        """
-        self.epoch = epoch
-        self.start_iter = start_iter
 
     def copy(self):
-        return copy.deepcopy(self)
+        # "h5py objects cannot be pickled, so use a stupid way to avoid serialization
+        dataset = self.dataset
+        self.dataset = None
+        copy_sampler = copy.deepcopy(self)
+        copy_sampler.dataset = dataset
+        self.dataset = dataset
+
+        return copy_sampler
 

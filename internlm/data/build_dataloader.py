@@ -9,6 +9,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.data.lumina_pickle.dataset import LuminaPickleDataset
 from internlm.data.lumina_pickle.sampler import LuminaPickleBatchSampler
+from internlm.data.lumina_pickle.collater import lumina_collate_fn
 from internlm.data.megatron.batch_sampler import MegatronBatchSampler
 from internlm.data.megatron.collaters import megatron_collate_fn
 from internlm.data.megatron.dataset import build_megatron_dataset
@@ -218,11 +219,7 @@ def get_mock_train_loader_items(data_cfg):
 def get_lumina_pickle_loader_items(data_cfg):
     train_ds = LuminaPickleDataset(data_cfg.data_yaml, base_path=data_cfg.base_path, micro_batch_size=data_cfg.micro_bsz, seq_len=data_cfg.seq_len)
     train_sampler = LuminaPickleBatchSampler(train_ds, micro_batch_size=data_cfg.micro_bsz, acc_grad=data_cfg.micro_num)
-    # TODO(zhenghuihuang): Can we reuse existing collate function?
-    train_collate_fn = partial(packed_collate_fn, packed_length=data_cfg.seq_len * data_cfg.micro_bsz)
-    #train_collate_fn = streaming_packed_collate_fn
-    #train_collate_fn = lambda batch: tuple(zip(*batch))
-    return train_ds, train_sampler, train_collate_fn
+    return train_ds, train_sampler, lumina_collate_fn
 
 def build_train_loader_with_data_type():
     """

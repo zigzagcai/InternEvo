@@ -1,8 +1,8 @@
-from .sampler import LuminaPickleSampler
+from .sampler import LuminaPickleBatchSampler
 from .dataset import LuminaPickleDataset
 
 __all__ = [
-    "LuminaPickleSampler",
+    "LuminaPickleBatchSampler",
     "LuminaPickleDataset"
 ]
 
