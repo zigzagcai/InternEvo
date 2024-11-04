@@ -170,4 +170,3 @@ class LuminaPickleBatchSampler(Sampler):
         self.dataset = dataset
 
         return copy_sampler
-

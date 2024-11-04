@@ -3,11 +3,9 @@ import torch
 def lumina_collate_fn(batch):
     """
     Collate function for packed input sequences.
-
     Args:
         batch (List[Dict]): List of dictionaries representing each sample in batch.
             Each dictionary contains "tokens", "labels", "type_ids", "cu_seqlens", and "indexes" keys.
-
     Returns:
         Tuple[Dict[str, torch.Tensor], torch.Tensor]: A tuple containing a dictionary of tensors with "input_ids",
             "cu_seqlens", "indexes", and "type_ids" keys, and the tensor of padded "labels".

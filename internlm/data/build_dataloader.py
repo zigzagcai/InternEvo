@@ -245,7 +245,7 @@ def build_train_loader_with_data_type():
         # TODO: support more dataset_types
         dataset_types = ["en"]
     elif data_cfg.type == DataType.lumina_pickle.name:
-        train_ds, train_sampler, train_collate_fn = get_lumina_pickle_loader_items(data_cfg) 
+        train_ds, train_sampler, train_collate_fn = get_lumina_pickle_loader_items(data_cfg)
         dataset_types = ["en"]
     else:
         raise ValueError(f"dataset type {data_cfg.type} is not supported")
