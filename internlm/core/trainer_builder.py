@@ -106,6 +106,29 @@ class TrainerBuilder(Trainer):
         # inject model for amp and parallel training
         model = inject_model(model)
 
+        import torch
+        from torch.distributed._composable.fsdp import fully_shard
+        from torch.distributed.fsdp.api import MixedPrecision, ShardingStrategy
+        from internlm.model.modeling_internlm2 import InternLM2Decoder
+
+        fsdp_kwargs = {
+            # "strategy": ShardingStrategy.SHARD_GRAD_OP,
+            # "mixed_precision": MixedPrecision(param_dtype=torch.bfloat16),
+            # "forward_prefetch": True,
+            "reshard_after_forward": False,
+        }
+
+        if gpc.get_global_rank() == 0:
+            print(f"ht debug {model.modules()=}", flush=True)
+
+        for module in model.modules():
+            if isinstance(module, InternLM2Decoder):
+                fully_shard(module, **fsdp_kwargs)
+        fully_shard(model, **fsdp_kwargs)
+
+        if gpc.get_global_rank() == 0:
+            print(f"ht debug {model}", flush=True)
+
         # check cuda env
         check_cuda_env()
 

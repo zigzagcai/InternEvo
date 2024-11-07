@@ -243,6 +243,8 @@ def reduce_grads(gradients, parameters, weight_parallel_mode):
             and dist.get_rank(p.pipeline_shared_module_pg) != 0
         ):
             continue
+        elif gpc.config.parallel.zero1.fsdp is True:
+            parallel_grads.append(g.data.float())
         elif (
             is_replica_zero_parallel_parameter(p) and gpc.get_local_rank(weight_parallel_mode) == 0
         ):  # if not used in each chunk, such as layernorm IS_REPLICA_ZERO_PARALLEL parameter group

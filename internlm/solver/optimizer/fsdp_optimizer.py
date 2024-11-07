@@ -96,12 +96,12 @@ class FSDPadaptOptimizer(BaseOptimizer):
         # in case that fsdp-zero3 size is not equal to dp size
         # FSDP module will only reduce gradient within FSDP process group
         # so manually reduce grad is essential between two parallel FSDP process group
-        for group_idx in range(len(self.param_groups)):
-            params = self._fp16_param_groups[group_idx]
-            for param in params:
-                if param.requires_grad and param.grad is not None:
-                    handle = reduce_tensor(tensor=param.grad, parallel_mode=ParallelMode.ZERO3_DP)
-                    handle.wait()
+        # for group_idx in range(len(self.param_groups)):
+        #     params = self._fp16_param_groups[group_idx]
+        #     for param in params:
+        #         if param.requires_grad and param.grad is not None:
+        #             handle = reduce_tensor(tensor=param.grad, parallel_mode=ParallelMode.ZERO3_DP)
+        #             handle.wait()
 
         # compute norm
         found_inf = False
