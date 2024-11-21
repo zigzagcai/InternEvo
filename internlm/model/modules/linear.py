@@ -602,8 +602,10 @@ class ParallelLinearWithCommExt(nn.Linear):
             split_features = out_features if split_mode == "column" else in_features
             multiple = split_features // multiple_of
             # We want to split @multiple across world_size, but it could be an uneven split
+            # uneven split is forbidden
             div = multiple // world_size
             mod = multiple % world_size
+            assert mod == 0, "linear module uneven split is forbidden"
             # The first @mod ranks get @div + 1 copies, the rest get @div copies
             local_multiple = div + int(rank < mod)
 
