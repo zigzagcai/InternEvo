@@ -395,11 +395,17 @@ def args_sanity_check():
         gpc.config.parallel["tensor"] = dict(size=gpc.config.parallel["tensor"], mode=TensorParallelMode.mtp.name)
     if gpc.config.parallel["tensor"].get("mode", None) is None:
         gpc.config.parallel["tensor"]["mode"] = TensorParallelMode.mtp.name
+    assert (
+        gpc.config.VOCAB_SIZE % gpc.config.parallel.tensor.size == 0
+    ), "VOCAB_SIZE must be integer multiple of tensor parallel size"
     if gpc.config.parallel["tensor"]["mode"] == TensorParallelMode.isp.name:
         assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support isp"
         assert (
             torch.__version__ >= "2.1.0"
         ), f"requires torch>=2.1.0 when using isp but current version is {torch.__version__}"
+        assert (
+            gpc.config.VOCAB_SIZE % gpc.config.parallel.weight.size == 0
+        ), "VOCAB_SIZE must be integer multiple of wp size"
 
     assert gpc.config.parallel["tensor"].get("mode", None) in [
         TensorParallelMode.mtp.name,
