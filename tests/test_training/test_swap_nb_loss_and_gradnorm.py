@@ -37,6 +37,7 @@ internlm_accelerator = get_accelerator()
 TOTAL_STEPS = 300
 config = Config(
     dict(
+        VOCAB_SIZE=103168,
         parallel=dict(
             zero1=dict(size=-1),
             tensor=dict(size=1, mode="mtp"),

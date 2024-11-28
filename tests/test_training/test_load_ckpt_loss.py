@@ -65,6 +65,7 @@ TOTAL_STEPS = 10
 temp_folder = "temp_ckpt_for_check_loss"
 config = Config(
     dict(
+        VOCAB_SIZE=103168,
         parallel=dict(
             zero1=dict(size=-1, fsdp=False),
             pipeline=dict(size=1, interleaved_overlap=False),
