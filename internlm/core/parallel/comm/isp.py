@@ -6,6 +6,7 @@ communication for isp parallel.
 
 from abc import ABC, abstractmethod
 from functools import partial
+from queue import Queue
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -318,6 +319,12 @@ class ISPCommunicator(WPCommunicator):
         self._module_shapes = {}
         self._forward_prefetch_prerequisites = []
 
+        self._comm_stream = torch.cuda.Stream()
+        self._zero_const_pool = {}
+        self._early_reduce_scatter_relase_queue_length = 1  # 2 layer
+        self._early_reduce_scatter_current_layer_handles = []
+        self._early_reduce_scatter_relase_queue = Queue(self._early_reduce_scatter_relase_queue_length)
+
         # real overlap state for each chunk.
         self._overlap_states: Dict[int, ISPOverlapState] = {}
 
@@ -459,6 +466,13 @@ class ISPCommunicator(WPCommunicator):
         if module in self._bias_global_output:
             del self._bias_global_output[module]
 
+    def _allocate_constant_zero(self, size: tuple) -> torch.Tensor:
+        if size not in self._zero_const_pool:
+            self._zero_const_pool[size] = torch.zeros(
+                *size, dtype=self.model_conf.dtype, device=self.model_conf.device
+            ).contiguous()
+        return self._zero_const_pool[size]
+
     def _pre_forward_hook_for_first_block(self, *args):  # pylint: disable=W0613
         """
         prefetch weight for block 0 before forward.
@@ -510,6 +524,15 @@ class ISPCommunicator(WPCommunicator):
         self._clear_handle(module)
         self._clear_weight(module)
 
+    def _early_reduce_scatter_relase_hook(self, *args):  # pylint: disable=W0613
+        # print(f"#### len: {len(self._early_reduce_scatter_current_layer_handles)}", flush=True)
+        self._early_reduce_scatter_relase_queue.put(self._early_reduce_scatter_current_layer_handles)
+        self._early_reduce_scatter_current_layer_handles = []
+        if self._early_reduce_scatter_relase_queue.full():
+            # print("#### flush", flush=True)
+            for handle in self._early_reduce_scatter_relase_queue.get():
+                handle.wait()
+
     def _register_sync_parameters_hook(self) -> None:
         """
         register forward hooks and backward hooks for isp modules.
@@ -530,6 +553,8 @@ class ISPCommunicator(WPCommunicator):
 
         for out_proj in self._isp_outs:
             out_proj.register_forward_pre_hook(self._pre_forward_hook_for_out_proj)
+            # TODO: should we select another point to register hook
+            out_proj.register_full_backward_hook(self._early_reduce_scatter_relase_hook)
 
         for module in self._isp_modules:
             module.register_forward_pre_hook(self._pre_forward_hook_for_module)
@@ -644,6 +669,8 @@ class ISPCommunicator(WPCommunicator):
                 async_op=async_op,
             )
 
+            self._early_reduce_scatter_current_layer_handles.append(self.reduce_scatter_handlers[key][1])
+
             result, handle = (
                 self._get_constant_zero(
                     (
@@ -691,6 +718,10 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         # accumulate left gradients in last bucket after backward.
         if self._isp_communicator and self._isp_communicator.overlap:
             self._zero_optim.accumulate_left_grads_after_backward()
+
+            # clear isp communictor _early_reduce_scatter_relase_queue
+            while not self._isp_communicator._early_reduce_scatter_relase_queue.empty():
+                _ = self._isp_communicator._early_reduce_scatter_relase_queue.get()
 
             if (
                 getattr(gpc.config.parallel["pipeline"], "mode", "1F1B").upper() in ["ZBV", "ZBH1"]
@@ -872,9 +903,9 @@ class DistributedAttention(nn.Module):
 
         q, kv = _SeqAllToAll.apply(self.spg, [2, 3], [1, 1], q, kv)
 
-        torch.cuda.synchronize()
+        # torch.cuda.current_stream().synchronize()
         context = self.local_attn(q, kv, *args, **kwargs)
-        torch.cuda.synchronize()
+        # torch.cuda.current_stream().synchronize()
 
         context = _SeqAllToAll.apply(self.spg, 1, 2, context)
 
