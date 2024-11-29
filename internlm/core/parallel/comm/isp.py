@@ -488,8 +488,8 @@ class ISPCommunicator(WPCommunicator):
         self._wait_handle(module)
 
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
-        self._clear_handle(module)
         if not ((self._module_to_index[module] < self._ckpt_block_num) and self.is_forward is False):
+            self._clear_handle(module)
             self._clear_weight(module)
 
     def _pre_backward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613

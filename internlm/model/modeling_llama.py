@@ -157,7 +157,7 @@ class Llama2Decoder(nn.Module):
             mlp_layer_fusion=mlp_layer_fusion,
             multiple_of=multiple_of,
             # TODO: to support more activation functions
-            activation_type="swiglu" if use_swiglu else "swiglu",
+            activation_type="swiglu" if use_swiglu else "gelu",
         )
 
         self.use_swiglu = use_swiglu
