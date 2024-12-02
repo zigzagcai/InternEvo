@@ -250,9 +250,8 @@ def enable_pytorch_expandable_segments():
 
 
 def check_cuda_env():
-    max_connections = os.getenv("CUDA_DEVICE_MAX_CONNECTIONS")
-    assert max_connections is not None, "Env var CUDA_DEVICE_MAX_CONNECTIONS has not been set, please set it to 1!"
-    assert max_connections == '1', "Env var CUDA_DEVICE_MAX_CONNECTIONS is set to {}, but it should be set to 1!".format(max_connections)
+    if os.getenv("CUDA_DEVICE_MAX_CONNECTIONS") is None:
+        logger.warning("Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!")
 
 
 class DummyProfile:
