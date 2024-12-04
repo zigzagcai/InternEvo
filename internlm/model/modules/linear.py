@@ -405,6 +405,7 @@ class GroupedGemmSPFusedDenseFunc(torch.autograd.Function):
 
         return grad_input, grad_weight, None, None, None, None, None
 
+
 class GroupedGemmWPFusedDenseFunc(torch.autograd.Function):
     "Grouped Gemm FusedDenseFunc for weigth parallel."
 
