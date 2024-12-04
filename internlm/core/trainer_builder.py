@@ -107,23 +107,38 @@ class TrainerBuilder(Trainer):
         model = inject_model(model)
 
         import torch
+        from torch import nn
+        from torch.distributed import init_device_mesh
         from torch.distributed._composable.fsdp import fully_shard
-        from torch.distributed.fsdp.api import MixedPrecision, ShardingStrategy
+        from torch.distributed._composable.fsdp._fsdp_api import MixedPrecisionPolicy
         from internlm.model.modeling_internlm2 import InternLM2Decoder
-
-        fsdp_kwargs = {
-            # "strategy": ShardingStrategy.SHARD_GRAD_OP,
-            # "mixed_precision": MixedPrecision(param_dtype=torch.bfloat16),
-            # "forward_prefetch": True,
-            "reshard_after_forward": False,
-        }
+        from internlm.model.ops.norm import RMSNorm
 
         if gpc.get_global_rank() == 0:
             print(f"ht debug {model.modules()=}", flush=True)
 
+        world_mesh = init_device_mesh(device_type="cuda", mesh_shape=(1, 8), mesh_dim_names=("replica", "shard"))
+        dp_mesh = world_mesh["shard"]
+        fsdp_kwargs = {
+            "mesh": dp_mesh,
+            "mp_policy": MixedPrecisionPolicy(param_dtype=torch.bfloat16),
+            "reshard_after_forward": True,
+        }
+
+        for module in model.modules():
+            if isinstance(module, (RMSNorm, nn.LayerNorm)):
+                _dp_mesh = world_mesh["replica"]
+                _fsdp_kwargs = {
+                    "mesh": _dp_mesh,
+                    "mp_policy": MixedPrecisionPolicy(param_dtype=torch.float32, output_dtype=torch.bfloat16),
+                    "reshard_after_forward": False,
+                }
+                fully_shard(module, **_fsdp_kwargs)
+
         for module in model.modules():
             if isinstance(module, InternLM2Decoder):
                 fully_shard(module, **fsdp_kwargs)
+
         fully_shard(model, **fsdp_kwargs)
 
         if gpc.get_global_rank() == 0:

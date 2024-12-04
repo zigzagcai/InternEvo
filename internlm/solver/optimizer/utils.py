@@ -357,6 +357,13 @@ def compute_norm(gradients, parameters, norm_type=2, zero_mode=ParallelMode.ZERO
         if gpc.is_using_parallel_mode(zero_mode):
             dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(zero_mode))
 
+        from torch.distributed.tensor import DTensor
+
+        if isinstance(total_norm, DTensor):
+            total_norm = total_norm.full_tensor()
+
+        dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.DATA))
+
         if torch.is_tensor(total_norm):
             total_norm = total_norm.item()
 
