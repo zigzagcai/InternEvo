@@ -351,17 +351,6 @@ def args_sanity_check():
     if "use_flash_attn" not in gpc.config.model:
         gpc.config.model._add_item("use_flash_attn", True)
 
-    old_parallel_output = gpc.config.model.get("parallel_output", None)
-    # Try to change user setting
-    if internlm_accelerator.get_accelerator_backend() is not AcceleratorType.GPU:
-        gpc.config.model.update({"parallel_output": False})
-        if old_parallel_output is True and gpc.is_rank_for_log():
-            logger.warning(
-                "'parallel_output' is converted from 'True' to 'False'."
-                "Because 'parallel_output' only support by FlashCrossEntropyLoss."
-                "Please make sure you are using flash attention in cuda device."
-            )
-
     if "MoE" in gpc.config.get("model_type", ModelType.INTERNLM.name):
         if "num_experts" not in model:
             model._add_item("num_experts", 1)
@@ -448,6 +437,9 @@ def args_sanity_check():
         TensorParallelMode.isp.name,
     ]:
         gpc.config.parallel.sequence_parallel = True
+
+        if gpc.config.model.get("parallel_output", False) is False:
+            logger.warning("When enable sequence parallel, it recommend to enable parallel_output")
 
     # set default value for weight parallel
     if gpc.config.parallel["weight"].get("overlap", None) is None:
@@ -582,6 +574,11 @@ def args_sanity_check():
             assert (
                 gpc.config.data.use_packed_dataset is False
             ), "only unpacked data is supported when using 2D sequence parallel."
+
+    # loss operator type
+    loss_cfg = gpc.config.loss
+    if loss_cfg.get("op_type", None) is None:
+        loss_cfg._add_item("op_type", "py_vocab_parallel")
 
 
 def launch(
