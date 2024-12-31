@@ -37,6 +37,8 @@ from internlm.utils.utils import (
     params_dispatch_with_condition,
 )
 
+from .attn_offload import get_offload_manager
+
 
 # not really useful, only for code hint.
 class WPCommunicator(ABC):
@@ -306,6 +308,7 @@ class ISPCommunicator(WPCommunicator):
         overlap: bool = False,
         process_group: dist.ProcessGroup = None,
         is_moe: bool = False,
+        selective_ckpt_offload: bool = False,
     ) -> None:
         self.process_group = process_group
         self.overlap = overlap
@@ -316,6 +319,14 @@ class ISPCommunicator(WPCommunicator):
         self._forward_prefetch_prerequisites = []
         self._forward_overlap_per = self._get_forward_overlap_granularity()
         self._launch_before_module = self._get_launch_before_module()
+        # As an optimization, do not release weight after forward for the last
+        # transformer block since wp would prefetch it immediately
+        self.layers_wp_not_release = []  # [gpc.config.isp_num_layers - 1]
+        self.layers_fa_not_release = [
+            gpc.config.isp_num_layers - 1,
+            int(gpc.config.model.checkpoint * gpc.config.isp_num_layers) - 1,
+        ]
+        self.sc_offload = selective_ckpt_offload
 
         # real overlap state for each chunk.
         self._overlap_states: Dict[int, ISPOverlapState] = {}
@@ -411,6 +422,7 @@ class ISPCommunicator(WPCommunicator):
                             self._overlap_states[cid].index_to_isp_modules[idx].append(child)
 
                             setattr(child, "isp_name", name)
+                            setattr(child, "isp_layer_idx", idx)
 
                             full_name = f"{cid}.{idx}.{name}"
                             setattr(
@@ -506,6 +518,25 @@ class ISPCommunicator(WPCommunicator):
                 if block_index + 1 < self._num_blocks:
                     self._all_gather_block_weight(block_index + 1)
 
+        # register offload and prefetch hook for selective ckpt with wo linear
+        if self.sc_offload is True:
+            # move current layer's attn output from GPU to CPU asynchronizely
+            if (
+                self.is_forward is True
+                and gpc.config.selective_checkpoint
+                and block_index not in self.layers_fa_not_release
+                and block_index < self._ckpt_block_num
+            ):
+                get_offload_manager().offload_fa_output_with_layer(layer_idx=block_index)
+
+            # load previous layer's attn output from CPU to GPU asynchronizely
+            if (
+                self.is_forward is False
+                and gpc.config.selective_checkpoint
+                and (0 <= (block_index - 1) < self._ckpt_block_num)
+            ):
+                get_offload_manager().preload_fa_output_with_layer(layer_idx=block_index - 1)
+
     def _pre_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         if module not in self._weight_global_handle:
             self._all_gather_module_weight(module)
@@ -539,6 +570,9 @@ class ISPCommunicator(WPCommunicator):
                         self._all_gather_module_weight(next_module)
 
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
+        if int(module.isp_layer_idx) in self.layers_wp_not_release:
+            # print(f"the layer {module.isp_layer_idx} after forward not clear weight")
+            return
         if not ((self._module_to_index[module] < self._ckpt_block_num) and self.is_forward is False):
             self._clear_handle(module)
             self._clear_weight(module)
