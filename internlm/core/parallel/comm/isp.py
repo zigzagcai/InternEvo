@@ -37,6 +37,8 @@ from internlm.utils.utils import (
     params_dispatch_with_condition,
 )
 
+from .attn_offload import get_offload_manager
+
 
 # not really useful, only for code hint.
 class WPCommunicator(ABC):
@@ -306,6 +308,8 @@ class ISPCommunicator(WPCommunicator):
         overlap: bool = False,
         process_group: dist.ProcessGroup = None,
         is_moe: bool = False,
+        selective_ckpt_offload: bool = False,
+        early_reduce_scatter_release: bool = True,
     ) -> None:
         self.process_group = process_group
         self.overlap = overlap
@@ -314,8 +318,21 @@ class ISPCommunicator(WPCommunicator):
         self.is_forward = True
         self.reduce_scatter_handlers = {}
         self._forward_prefetch_prerequisites = []
+        self._zero_const_pool = {}
+
+        self._enable_early_reduce_scatter_release = early_reduce_scatter_release
+        self._early_prev_layer_rs_handles = []
+        self._early_curr_layer_rs_handles = []
         self._forward_overlap_per = self._get_forward_overlap_granularity()
         self._launch_before_module = self._get_launch_before_module()
+        # As an optimization, do not release weight after forward for the last
+        # transformer block since wp would prefetch it immediately
+        self.layers_wp_not_release = []  # [gpc.config.isp_num_layers - 1]
+        self.layers_fa_not_release = [
+            gpc.config.isp_num_layers - 1,
+            int(gpc.config.model.checkpoint * gpc.config.isp_num_layers) - 1,
+        ]
+        self.sc_offload = selective_ckpt_offload
 
         # real overlap state for each chunk.
         self._overlap_states: Dict[int, ISPOverlapState] = {}
@@ -411,6 +428,7 @@ class ISPCommunicator(WPCommunicator):
                             self._overlap_states[cid].index_to_isp_modules[idx].append(child)
 
                             setattr(child, "isp_name", name)
+                            setattr(child, "isp_layer_idx", idx)
 
                             full_name = f"{cid}.{idx}.{name}"
                             setattr(
@@ -506,6 +524,25 @@ class ISPCommunicator(WPCommunicator):
                 if block_index + 1 < self._num_blocks:
                     self._all_gather_block_weight(block_index + 1)
 
+        # register offload and prefetch hook for selective ckpt with wo linear
+        if self.sc_offload is True:
+            # move current layer's attn output from GPU to CPU asynchronizely
+            if (
+                self.is_forward is True
+                and gpc.config.selective_checkpoint
+                and block_index not in self.layers_fa_not_release
+                and block_index < self._ckpt_block_num
+            ):
+                get_offload_manager().offload_fa_output_with_layer(layer_idx=block_index)
+
+            # load previous layer's attn output from CPU to GPU asynchronizely
+            if (
+                self.is_forward is False
+                and gpc.config.selective_checkpoint
+                and (0 <= (block_index - 1) < self._ckpt_block_num)
+            ):
+                get_offload_manager().preload_fa_output_with_layer(layer_idx=block_index - 1)
+
     def _pre_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         if module not in self._weight_global_handle:
             self._all_gather_module_weight(module)
@@ -539,6 +576,9 @@ class ISPCommunicator(WPCommunicator):
                         self._all_gather_module_weight(next_module)
 
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
+        if int(module.isp_layer_idx) in self.layers_wp_not_release:
+            # print(f"the layer {module.isp_layer_idx} after forward not clear weight")
+            return
         if not ((self._module_to_index[module] < self._ckpt_block_num) and self.is_forward is False):
             self._clear_handle(module)
             self._clear_weight(module)
@@ -560,6 +600,13 @@ class ISPCommunicator(WPCommunicator):
     def _post_backward_hook_for_module(self, module, *args):  # pylint: disable=W0613
         self._clear_handle(module)
         self._clear_weight(module)
+
+    def _early_reduce_scatter_release_hook(self, *args):  # pylint: disable=W0613
+        for handle in self._early_prev_layer_rs_handles:
+            handle.wait()
+
+        self._early_prev_layer_rs_handles = self._early_curr_layer_rs_handles
+        self._early_curr_layer_rs_handles = []
 
     def _register_sync_parameters_hook(self) -> None:
         """
@@ -591,12 +638,18 @@ class ISPCommunicator(WPCommunicator):
         for module in self._isp_modules:
             module.register_full_backward_hook(self._post_backward_hook_for_module)
 
+        if self._enable_early_reduce_scatter_release:
+            for block_idx in range(self._num_blocks):
+                block = self._index_to_block[block_idx]
+                block.register_full_backward_hook(self._early_reduce_scatter_release_hook)
+
     def _get_constant_zero(self, size: tuple) -> torch.Tensor:
-        return torch.zeros(
-            *size,
-            dtype=self.model_conf.dtype,
-            device=self.model_conf.device,
-        ).contiguous()
+        if size not in self._zero_const_pool:
+            self._zero_const_pool[size] = torch.zeros(
+                *size, dtype=self.model_conf.dtype, device=self.model_conf.device
+            ).contiguous()
+
+        return self._zero_const_pool[size]
 
     def communication_mode(self) -> str:
         return "wp"
@@ -683,12 +736,17 @@ class ISPCommunicator(WPCommunicator):
                 assert hasattr(module.weight, "isp_reduce_scatter_name")
                 key = getattr(module.weight, "isp_reduce_scatter_name")
 
-            self.reduce_scatter_handlers[key] = reduce_scatter_raw(
+            output, handle = reduce_scatter_raw(
                 tensor,
                 self.process_group,
                 op=reduce_op,
                 async_op=async_op,
             )
+
+            if self._enable_early_reduce_scatter_release:
+                self._early_curr_layer_rs_handles.append(handle)
+
+            self.reduce_scatter_handlers[key] = (output, handle)
 
             result, handle = (
                 self._get_constant_zero(
@@ -743,6 +801,10 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
                 and not self._zero_optim.skip_grad_reduce
             ):
                 self._zero_optim.reduce_left_grads_after_backward()
+
+        if self._isp_communicator and self._isp_communicator._enable_early_reduce_scatter_release:
+            self._isp_communicator._early_prev_layer_rs_handles = []
+            self._isp_communicator._early_curr_layer_rs_handles = []
 
     def post_helper_func(self, scheduler, outputs, label) -> None:  # pylint: disable=W0613
         pass
