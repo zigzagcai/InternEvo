@@ -46,7 +46,7 @@ ASYNC_TMP_FOLDER = "./async_tmp_folder"
 init_config = Config(
     dict(
         parallel=dict(
-            zero1=dict(size=1, fsdp=False),
+            zero1=dict(size=1),
             tensor=dict(size=1, mode="mtp"),
             pipeline=dict(size=1, interleaved_overlap=True),
             weight=dict(size=1, overlap=True),
