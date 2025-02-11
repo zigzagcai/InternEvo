@@ -91,7 +91,7 @@ init_config = Config(
 
 def init_naive_model():
     register_model_initializer()
-    model = create_model(model_type=gpc.config.model_type)
+    model = create_model()
     model = NaiveAMPModel(
         model=model,
         output_to_fp32=False,
