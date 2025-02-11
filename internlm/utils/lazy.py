@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import abc
 import importlib
 from typing import Any, Optional, Type, Union
 
