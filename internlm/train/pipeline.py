@@ -294,7 +294,7 @@ def initialize_model_and_parallel_communicator(
 
     register_model_initializer()
 
-    model = create_model(model_type=gpc.config.model_type)
+    model = create_model()
 
     if post_process_func:
         post_process_func(pre_process_output)
