@@ -24,7 +24,7 @@ def create_model() -> Union[nn.Module, List[nn.Module]]:
     if is_using_hf():
         model = create_model_hf(hf=gpc.config.hf)
     else:
-        model = create_model_builtin(model_type=gpc.config.model_type, **gpc.config.model)
+        model = create_model_builtin(model_type=gpc.config.model_type)
     return model
 
 
