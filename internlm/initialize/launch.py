@@ -12,11 +12,11 @@ from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
-from internlm.utils.parallel import is_using_hf
 from internlm.utils.common import get_master_node
 from internlm.utils.gputest import warmup_process_group
 from internlm.utils.lazy import LazyObject
 from internlm.utils.logger import get_logger
+from internlm.utils.parallel import is_using_hf
 from internlm.utils.timeout import llm_timeout
 from internlm.utils.utils import DataType, ModelType, TensorParallelMode
 
