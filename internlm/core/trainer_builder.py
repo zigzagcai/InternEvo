@@ -98,7 +98,7 @@ class TrainerBuilder(Trainer):
         self.current_time = self._setup_time_and_logging()
         # load config_lines
         config_lines = self._read_config(kwargs["config"])
-        
+
         # inject model for amp, parallel setting, parameter syncing and others
         model, isp_communicator = inject_model(model)
 

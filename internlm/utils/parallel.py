@@ -27,6 +27,7 @@ def is_using_fsdp():
         and gpc.config.parallel["fsdp"].get("enable", False)
     )
 
+
 def is_using_sequence_parallel():
     return (
         isinstance(gpc.config.parallel["tensor"], dict)

@@ -4,7 +4,6 @@ import re
 from collections import defaultdict
 
 import torch
-from torch.distributed._shard.api import load_with_process_group
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -15,13 +14,10 @@ from internlm.solver.optimizer import HybridZeroOptimizer, HybridZeroOptimizer_v
 from internlm.utils.common import get_current_device
 from internlm.utils.lazy import LazyObject
 from internlm.utils.logger import get_logger
-from internlm.utils.parallel import is_using_hf, is_using_fsdp, is_using_isp
+from internlm.utils.parallel import is_using_fsdp, is_using_hf, is_using_isp
 from internlm.utils.storage_manager import get_fns, llm_load, llm_save
 
-from .utils import (
-    get_model_topology,
-    get_non_moe_state_dict,
-)
+from .utils import get_model_topology, get_non_moe_state_dict
 
 try:
     import torch.distributed.checkpoint as dcp
@@ -194,7 +190,7 @@ def load_model_checkpoint(folder, model):
     else:
         should_load_name = f"model_tp{tp_rank}_pp{pp_rank}.pt"
     fp = os.path.join(folder, should_load_name)
-    
+
     states = llm_load(fp, map_location=get_current_device())
     """
     # need convert the gate parameters to float32 (to fit deepspeed style mechanism), it may cause round-off in
@@ -366,7 +362,7 @@ def load_optimizer_checkpoint(folder, optim):
                     max_pp = max(max_pp, int(pp[2:]))
             else:
                 _, fsdp = os.path.splitext(fn)[0].split("_")
-                max_fsdp = max(max_fsdp, int(fsdp[4:]))  
+                max_fsdp = max(max_fsdp, int(fsdp[4:]))
 
     fsdp_size = gpc.get_world_size(ParallelMode.GLOBAL)
     zero_size = gpc.get_world_size(ParallelMode.ZERO1)
@@ -399,7 +395,7 @@ def load_optimizer_checkpoint(folder, optim):
     tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
     wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
     pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
-    
+
     if isinstance(optim, (HybridZeroOptimizer, HybridZeroOptimizer_v2)):
         if is_using_isp():
             fp = f"optimizer_wp{wp_rank}_pp{pp_rank}_zo{zero_rank}.pt"

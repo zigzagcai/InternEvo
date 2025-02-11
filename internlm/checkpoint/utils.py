@@ -2,10 +2,10 @@
 # -*- encoding: utf-8 -*-
 
 import itertools
+
 import numpy as np
 import torch
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import StateDictType
 
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import split_data_for_sequence_parallel

@@ -4,11 +4,9 @@
 import weakref
 
 import torch
-
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
     checkpoint_wrapper as ptd_checkpoint_wrapper,
 )
-
 from torch.utils.checkpoint import check_backward_validity, detach_variable
 
 from internlm.accelerator import get_accelerator

@@ -7,7 +7,7 @@ import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
-from internlm.accelerator import AcceleratorType, get_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.solver.optimizer.base_optimizer import BaseOptimizer

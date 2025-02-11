@@ -1,19 +1,21 @@
 from typing import List, Union
 
-from torch import nn
 import torch
+from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import pipeline_parallel_sharding_wrapper
 from internlm.model.base_model import BaseModel
-from internlm.model.modules.linear import ParallelLinearWithCommExt, ScaleColumnParallelLinear
+from internlm.model.modules.linear import (
+    ParallelLinearWithCommExt,
+    ScaleColumnParallelLinear,
+)
 from internlm.model.registry import model_initializer
-from internlm.utils.parallel import is_using_hf
 from internlm.utils.common import get_current_device
 from internlm.utils.lazy import LazyObject
 from internlm.utils.logger import get_logger
-from internlm.utils.parallel import is_using_fsdp, is_using_isp
+from internlm.utils.parallel import is_using_fsdp, is_using_hf, is_using_isp
 
 logger = get_logger(__file__)
 
@@ -57,6 +59,7 @@ def create_model_builtin(model_type) -> Union[nn.Module, List[nn.Module]]:
         logger.warning(f"To load/save huggingface ckpt, built-in model should inherited from {BaseModel.__name__}")
 
     return model
+
 
 def create_model_hf(hf: dict) -> nn.Module:
     cfg = LazyObject(hf.cfg, hf.cfg_cls)

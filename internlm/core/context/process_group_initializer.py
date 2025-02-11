@@ -1107,7 +1107,6 @@ class Initializer_Expert_Weight_Data(ProcessGroupInitializer):
         return groups
 
 
-
 class Initializer_Weight(ProcessGroupInitializer):
     """A ProcessGroupInitializer for model weight parallelism.
 

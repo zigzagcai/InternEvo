@@ -10,13 +10,13 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, TypeVar
 
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     BackwardPrefetch,
     ShardingStrategy,
 )
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+from torch.utils.data import DataLoader
 
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.checkpoint.utils import init_fsdp_v1
@@ -96,8 +96,8 @@ from internlm.utils.parallel import (
     is_replica_zero_parallel_parameter,
     is_tensor_expert_data_parallel_parameter,
     is_tensor_zero_parallel_parameter,
-    is_using_hf,
     is_using_fsdp,
+    is_using_hf,
     is_using_isp,
     is_weight_expert_data_parallel_parameter,
     is_weight_zero_parallel_parameter,
@@ -256,7 +256,8 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
             # special case for pure dp mode
             if (
                 isinstance(gpc.config.parallel["tensor"], dict)
-                and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.mtp.name
+                and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name)
+                == TensorParallelMode.mtp.name
                 and gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL)
             ):
                 _check_module_func = _check_module_pure_dp
@@ -278,7 +279,9 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
 
 
 @llm_timeout(func_name="initialize_model_and_parallel_communicator")
-def initialize_model_and_parallel_communicator(pre_process_func: Optional[Callable] = None, post_process_func: Optional[Callable] = None):
+def initialize_model_and_parallel_communicator(
+    pre_process_func: Optional[Callable] = None, post_process_func: Optional[Callable] = None
+):
     """
     Initialize model with Automatic Mixed Precision.
     Returns:
@@ -362,10 +365,10 @@ def inject_model(model):
     # state in the same dp group are all the same.
     random_mode = ParallelMode.WEIGHT_DATA if is_using_isp() else ParallelMode.DATA
     set_mode(random_mode)
-    
+
     # initialize isp communicator
     isp_communicator = initialize_parallel_communicator(model)
-    
+
     model = wrap_FSDP_model(model)
 
     # set is_injected flag
