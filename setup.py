@@ -1,7 +1,5 @@
 import os
-import re
-import sys
-import subprocess
+from typing import List
 from setuptools import setup, find_packages
 from setuptools.command.install import install
 
@@ -17,27 +15,20 @@ def get_version():
         content = f.read()
     return content
 
-def has_nvcc():
-    try:
-        subprocess.run(['nvcc', '--version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
+def get_requires() -> List[str]:
+    with open("requirements.txt", encoding="utf-8") as f:
+        file_content = f.read()
+        lines = [line.strip() for line in file_content.strip().split("\n") if not line.startswith("#")]
+        return lines
 
-def fetch_requirements(path):
-    with open(path, 'r') as fd:
-        return [r.strip() for r in fd.readlines() if 'torch-scatter' not in r and not r.startswith('-f ')]
+extra_require = {
+    "torch": ["torch>=2.1.0"],
+    "dev": ["pre-commit", "pytest"],
+}
 
-if has_nvcc():
-    install_requires = [
-        fetch_requirements('requirements/runtime.txt'),
-        'rotary_emb',
-        'xentropy',
-    ]
-else:
-    install_requires = [
-        fetch_requirements('requirements/runtime.txt'),
-    ]
+def get_console_scripts() -> List[str]:
+    console_scripts = ["internevo-cli = internevo.cli:main"]
+    return console_scripts
 
 setup(
     name='InternEvo',
@@ -45,8 +36,11 @@ setup(
     description='an open-sourced lightweight training framework aims to support model pre-training without the need for extensive dependencies',
     long_description=readme(),
     long_description_content_type='text/markdown',
-    packages=find_packages(),
-    install_requires=install_requires,
+    package_dir={"": "src"},
+    packages=find_packages("src"),
+    install_requires=get_requires(),
+    extras_require=extra_require,
+    entry_points={"console_scripts": get_console_scripts()},
     classifiers=[
         'Programming Language :: Python :: 3.10',
         'Intended Audience :: Developers',

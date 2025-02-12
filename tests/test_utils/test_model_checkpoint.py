@@ -9,12 +9,12 @@ import pytest
 import torch
 import torch.distributed as dist
 
-from internlm.checkpoint import CheckpointManager
-from internlm.core.context.parallel_context import Config
-from internlm.core.trainer import TrainState
-from internlm.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
-from internlm.utils.common import SingletonMeta
-from internlm.utils.storage_manager import wait_async_upload_finish
+from internevo.checkpoint import CheckpointManager
+from internevo.core.context.parallel_context import Config
+from internevo.core.trainer import TrainState
+from internevo.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
+from internevo.utils.common import SingletonMeta
+from internevo.utils.storage_manager import wait_async_upload_finish
 from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-import
     ASYNC_TMP_FOLDER,
     BOTO_SAVE_PATH,
@@ -201,8 +201,8 @@ def return_latest_save_path(save_ckpt_folder, total_step, snapshot_freq, ckpt_fr
 @pytest.mark.parametrize("step_info", step_info_list)
 @pytest.mark.parametrize("ckpt_config", ckpt_config_list)
 def test_ckpt_mm(step_info, ckpt_config, init_dist_and_model):  # noqa # pylint: disable=unused-import
-    from internlm.core.context import global_context as gpc
-    from internlm.checkpoint.checkpoint_manager import CheckpointLoadMask
+    from internevo.core.context import global_context as gpc
+    from internevo.checkpoint.checkpoint_manager import CheckpointLoadMask
 
     ckpt_config = Config(ckpt_config)
     total_step, checkpoint_every, oss_snapshot_freq = step_info
@@ -297,9 +297,9 @@ STOP_FILE_PATH = "./alter.log"
 
 
 def query_quit_file(rank, world_size=2):
-    from internlm.core.context import global_context as gpc
-    from internlm.initialize import initialize_distributed_env
-    from internlm.checkpoint.checkpoint_manager import CheckpointSaveType
+    from internevo.core.context import global_context as gpc
+    from internevo.initialize import initialize_distributed_env
+    from internevo.checkpoint.checkpoint_manager import CheckpointSaveType
 
     ckpt_config = Config(
         dict(

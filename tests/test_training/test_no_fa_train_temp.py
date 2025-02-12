@@ -2,20 +2,20 @@ import multiprocessing as mp
 
 import pytest
 
-import internlm
-from internlm.accelerator import get_accelerator
-from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
-from internlm.core.trainer import Trainer
-from internlm.data import build_train_loader_with_data_type
-from internlm.model.losses import InternLoss
-from internlm.model.metrics import AccPerplex
-from internlm.train import (
+import internevo
+from internevo.accelerator import get_accelerator
+from internevo.core.context import ParallelMode
+from internevo.core.context import global_context as gpc
+from internevo.core.trainer import Trainer
+from internevo.data import build_train_loader_with_data_type
+from internevo.model.losses import InternLoss
+from internevo.model.metrics import AccPerplex
+from internevo.train import (
     get_scheduler_hooks,
     initialize_model_and_parallel_communicator,
     initialize_optimizer,
 )
-from internlm.utils.logger import get_logger
+from internevo.utils.logger import get_logger
 from tests.common_fixture import (
     build_environment,
     config_7B,
@@ -67,7 +67,7 @@ def train_check(args):
         dataset_types=dataset_types,
     )
 
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = internevo.initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

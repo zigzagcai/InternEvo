@@ -1,5 +1,5 @@
 # Copyright (c) InternLM. All rights reserved.
-from internlm.utils.utils import read_base
+from internevo.utils.utils import read_base
 
 with read_base():
     from configs._base_.default_runtime import *  # pylint: disable=W0401,W0614  # noqa: F401

@@ -1,0 +1,16 @@
+transformers<4.47.0
+sentencepiece
+datasets
+numpy
+tqdm
+einops
+psutil
+packaging
+ninja
+gputil
+boto3
+botocore
+pyecharts
+py-libnuma
+pynvml
+tensorboard

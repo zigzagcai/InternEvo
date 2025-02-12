@@ -3,15 +3,15 @@ import os
 import pytest
 from sentencepiece import SentencePieceProcessor
 
-import internlm  # noqa: E402
-from internlm.apis.inference import SequenceGenerator, batch_tokenize
-from internlm.checkpoint import CheckpointManager  # noqa: E402
-from internlm.core.context import global_context as gpc  # noqa: E402
-from internlm.core.trainer import TrainState, Trainer  # noqa: E402
-from internlm.data import build_train_loader_with_data_type  # noqa: E402
-from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.model.losses import InternLoss  # noqa: E402
-from internlm.train import (  # noqa: E402
+import internevo  # noqa: E402
+from internevo.apis.inference import SequenceGenerator, batch_tokenize
+from internevo.checkpoint import CheckpointManager  # noqa: E402
+from internevo.core.context import global_context as gpc  # noqa: E402
+from internevo.core.trainer import TrainState, Trainer  # noqa: E402
+from internevo.data import build_train_loader_with_data_type  # noqa: E402
+from internevo.initialize import initialize_distributed_env  # noqa: E402
+from internevo.model.losses import InternLoss  # noqa: E402
+from internevo.train import (  # noqa: E402
     get_scheduler_hooks,
     initialize_model_and_parallel_communicator,
     initialize_optimizer,
@@ -45,7 +45,7 @@ def setup_generator(config, tokenizer):
     ckpt_manager.try_resume_training(train_state)
 
     # initialize trainer
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = internevo.initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

@@ -7,22 +7,22 @@ import numpy as np
 import pytest
 import torch
 
-import internlm
-from internlm.accelerator import get_accelerator
-from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
-from internlm.core.context.parallel_context import Config
-from internlm.core.trainer import Trainer
-from internlm.data import build_train_loader_with_data_type
-from internlm.initialize.launch import args_sanity_check
-from internlm.model.losses import InternLoss
-from internlm.model.metrics import AccPerplex, SchedulerMetricHook
-from internlm.train import (
+import internevo
+from internevo.accelerator import get_accelerator
+from internevo.core.context import ParallelMode
+from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import Config
+from internevo.core.trainer import Trainer
+from internevo.data import build_train_loader_with_data_type
+from internevo.initialize.launch import args_sanity_check
+from internevo.model.losses import InternLoss
+from internevo.model.metrics import AccPerplex, SchedulerMetricHook
+from internevo.train import (
     initialize_model_and_parallel_communicator,
     initialize_optimizer,
 )
-from internlm.utils.common import get_current_device
-from internlm.utils.logger import get_logger
+from internevo.utils.common import get_current_device
+from internevo.utils.logger import get_logger
 
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
@@ -133,7 +133,7 @@ def build_environment(rank, world_size, free_port, config):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(free_port)
     internlm_accelerator.empty_cache()
-    internlm.launch_from_torch(config=config, seed=1024)
+    internevo.launch_from_torch(config=config, seed=1024)
     args_sanity_check()
 
 
@@ -198,7 +198,7 @@ def train_check_output(args):
         ),
     ]
 
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = internevo.initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

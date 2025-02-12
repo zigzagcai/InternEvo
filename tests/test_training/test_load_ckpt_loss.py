@@ -1,6 +1,6 @@
 import multiprocessing as mp
 
-from internlm.accelerator import get_accelerator
+from internevo.accelerator import get_accelerator
 
 backup_ForkingPickler = mp.reduction.ForkingPickler
 backup_dump = mp.reduction.dump
@@ -14,46 +14,46 @@ import pytest  # noqa: E402  #pylint: disable=wrong-import-position
 import torch  # noqa: E402  #pylint: disable=wrong-import-position
 import torch.distributed as dist  # noqa: E402  #pylint: disable=wrong-import-position
 
-import internlm  # noqa: E402  #pylint: disable=wrong-import-position
-from internlm.checkpoint import (  # noqa: E402  #pylint: disable=wrong-import-position
+import internevo  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.checkpoint import (  # noqa: E402  #pylint: disable=wrong-import-position
     CheckpointManager,
 )
-from internlm.core.context import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.core.context import (  # noqa: E402  #pylint: disable=wrong-import-position
     ParallelMode,
 )
-from internlm.core.context import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.core.context import (  # noqa: E402  #pylint: disable=wrong-import-position
     global_context as gpc,
 )
-from internlm.core.context.parallel_context import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.core.context.parallel_context import (  # noqa: E402  #pylint: disable=wrong-import-position
     Config,
 )
-from internlm.core.trainer import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.core.trainer import (  # noqa: E402  #pylint: disable=wrong-import-position
     TrainState,
     Trainer,
 )
-from internlm.data import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.data import (  # noqa: E402  #pylint: disable=wrong-import-position
     build_train_loader_with_data_type,
 )
-from internlm.initialize.launch import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.initialize.launch import (  # noqa: E402  #pylint: disable=wrong-import-position
     args_sanity_check,
 )
-from internlm.model.losses import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.model.losses import (  # noqa: E402  #pylint: disable=wrong-import-position
     InternLoss,
 )
-from internlm.model.metrics import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.model.metrics import (  # noqa: E402  #pylint: disable=wrong-import-position
     AccPerplex,
     SchedulerMetricHook,
 )
-from internlm.train import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.train import (  # noqa: E402  #pylint: disable=wrong-import-position
     initialize_model_and_parallel_communicator,
     initialize_optimizer,
     load_new_batch,
 )
-from internlm.utils.common import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.utils.common import (  # noqa: E402  #pylint: disable=wrong-import-position
     get_current_device,
     launch_time,
 )
-from internlm.utils.logger import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.utils.logger import (  # noqa: E402  #pylint: disable=wrong-import-position
     get_logger,
 )
 
@@ -174,7 +174,7 @@ def build_environment(rank, world_size, free_port, config):
     os.environ["MASTER_PORT"] = str(free_port)
     internlm_accelerator.empty_cache()
     # launcher="torch"
-    internlm.launch_from_torch(config=config, seed=1024)
+    internevo.launch_from_torch(config=config, seed=1024)
     args_sanity_check()
 
 
@@ -265,7 +265,7 @@ def train_model(args):
         ),
     ]
 
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = internevo.initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

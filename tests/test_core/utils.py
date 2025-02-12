@@ -5,21 +5,21 @@ import torch
 from torch import nn
 from torch.testing import assert_close
 
-import internlm
-from internlm.accelerator import get_accelerator
-from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
-from internlm.core.engine import Engine
-from internlm.core.gradient_handler import PipelineSharedModuleGradientHandler
-from internlm.core.parallel.shard import partition_uniform
-from internlm.core.scheduler import (
+import internevo
+from internevo.accelerator import get_accelerator
+from internevo.core.context import ParallelMode
+from internevo.core.context import global_context as gpc
+from internevo.core.engine import Engine
+from internevo.core.gradient_handler import PipelineSharedModuleGradientHandler
+from internevo.core.parallel.shard import partition_uniform
+from internevo.core.scheduler import (
     InterleavedPipelineScheduler,
     NonPipelineScheduler,
     PipelineScheduler,
 )
-from internlm.model.metrics import SchedulerMetricHook
-from internlm.train import initialize_optimizer
-from internlm.utils.common import get_current_device
+from internevo.model.metrics import SchedulerMetricHook
+from internevo.train import initialize_optimizer
+from internevo.utils.common import get_current_device
 
 internlm_accelerator = get_accelerator()
 
@@ -156,7 +156,7 @@ def build_environment(rank, world_size, config):
     os.environ["MASTER_PORT"] = "33333"
     internlm_accelerator.empty_cache()
     # launcher="torch"
-    internlm.launch_from_torch(config=config, seed=1024)
+    internevo.launch_from_torch(config=config, seed=1024)
 
 
 def loose_close(a, b, dtype: torch.dtype = torch.float32):
